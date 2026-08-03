@@ -23,10 +23,7 @@ async def _fetch_all_employees() -> list[Employee]:
 
     Result is cached — org structure doesn't change mid-session.
     """
-    import time
-    if _cache._loaded and hasattr(_cache, '_loaded_at'):
-        if time.time() - _cache._loaded_at < 5:
-            return _cache.all_employees
+    # Always fetch fresh data
 
     url = f"{settings.bitrix24_webhook_url}/user.get"
     field = settings.bitrix24_telegram_field_id
@@ -66,7 +63,6 @@ async def _fetch_all_employees() -> list[Employee]:
 
         _cache.all_employees = employees
         _cache._loaded = True
-        _cache._loaded_at = time.time()
         logger.info(
             "b24_employees_loaded total=%d with_tg=%d",
             len(employees),

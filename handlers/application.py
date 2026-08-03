@@ -448,8 +448,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             parse_mode=ParseMode.HTML,
         )
 
-        if ud["planned_payment_date"] == date.today():
-            await _notify_positions(context, app)
+        await _notify_positions(context, app)
 
     except Exception as e:
         logger.error("sheet_write_failed: %s", e)

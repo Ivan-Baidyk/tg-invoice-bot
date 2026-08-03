@@ -3,7 +3,7 @@
 import logging
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 from config import settings
 from services.bitrix24 import get_employee_by_telegram
@@ -59,5 +59,5 @@ async def security_middleware(
             await update.effective_message.reply_text(
                 "Доступ закрыт. Обратись к руководителю отдела"
             )
-        return True  # Block ConversationHandler on deny
+        raise ApplicationHandlerStop  # Block all further handlers
     return None

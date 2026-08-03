@@ -65,9 +65,9 @@ async def _fetch_all_employees() -> list[Employee]:
         _cache.all_employees = employees
         _cache._loaded = True
         logger.info(
-            "b24_employees_loaded",
-            total=len(employees),
-            with_telegram=len([e for e in employees if e.telegram_id]),
+            "b24_employees_loaded total=%d with_tg=%d",
+            len(employees),
+            len([e for e in employees if e.telegram_id]),
         )
         return employees
 

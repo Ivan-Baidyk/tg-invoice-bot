@@ -1,6 +1,7 @@
 """Обработчик диалога подачи заявки на оплату счёта.
 
 5 шагов + файл + подтверждение с кнопками редактирования.
+Статьи загружаются динамически из листа «Справочник» Google Таблицы.
 """
 
 import logging
@@ -21,10 +22,10 @@ from telegram.ext import (
 from config import settings
 from data.currencies import Currency
 from middleware.security import check_file_safe
-from models.invoice import Article, InvoiceApplication
+from models.invoice import InvoiceApplication
 from services.bitrix24 import get_accountants
 from services.google_drive import upload_file_async
-from services.google_sheets import append_row_async
+from services.google_sheets import append_row_async, get_articles_async
 from validators.fields import (
     build_article_keyboard,
     validate_amount_with_currency,
@@ -47,6 +48,17 @@ logger = logging.getLogger(__name__)
     STATE_EDITING,
 ) = range(8)
 
+SKIP_KEYBOARD = InlineKeyboardMarkup([
+    [InlineKeyboardButton("⏭ Пропустить", callback_data="skip_field")]
+])
+
+
+async def _load_articles(context: ContextTypes.DEFAULT_TYPE) -> list[str]:
+    """Load articles from cache or fetch from Google Sheets."""
+    if "cached_articles" not in context.bot_data:
+        context.bot_data["cached_articles"] = await get_articles_async()
+    return context.bot_data["cached_articles"]
+
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -55,13 +67,12 @@ logger = logging.getLogger(__name__)
 def _build_summary_html(ud: dict) -> str:
     file_status = "приложен" if ud.get("invoice_file_bytes") else "не приложен"
     cn = ud.get("currency_name", "")
-
     return (
         "<b>Проверьте данные заявки:</b>\n\n"
         f"<b>Плановая дата оплаты:</b> {ud['planned_payment_date'].strftime('%d.%m.%Y')}\n"
         f"<b>Контрагент:</b> {ud['counterparty']}\n"
         f"<b>Сумма:</b> {ud['amount']} {ud['currency_code']} ({cn})\n"
-        f"<b>Статья:</b> {ud['article'].value}\n"
+        f"<b>Статья:</b> {ud['article']}\n"
         f"<b>Комментарий:</b> {ud['comment'] or '—'}\n"
         f"<b>Файл счёта:</b> {file_status}\n\n"
         "<i>Нажмите кнопку для изменения поля</i>"
@@ -125,7 +136,7 @@ async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 # ---------------------------------------------------------------------------
-# steps 1-5 + file
+# steps
 # ---------------------------------------------------------------------------
 
 async def get_planned_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -149,7 +160,7 @@ async def get_counterparty(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return STATE_COUNTERPARTY
     await update.message.reply_text(
         "<b>Шаг 3 из 5:</b> Введите <b>сумму и код валюты</b>\n"
-        "Пример: <code>15000 RUB</code> или <code>5000 USD</code>",
+        "Пример: <code>15000 RUB</code>",
         parse_mode=ParseMode.HTML,
     )
     return STATE_AMOUNT
@@ -165,23 +176,27 @@ async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text(str(e), parse_mode=ParseMode.HTML)
         return STATE_AMOUNT
 
+    articles = await _load_articles(context)
     await update.message.reply_text(
         f"✅ {amount} {currency.code} — {currency.name_ru}\n\n"
-        + "<b>Шаг 4 из 5:</b> " + "\n".join(build_article_keyboard()),
+        + "<b>Шаг 4 из 5:</b> Выберите <b>статью расхода</b>:\n"
+        + "\n".join(build_article_keyboard(articles)),
         parse_mode=ParseMode.HTML,
     )
     return STATE_ARTICLE
 
 
 async def get_article(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    articles = await _load_articles(context)
     try:
-        context.user_data["article"] = validate_article(update.message.text)
+        context.user_data["article"] = validate_article(update.message.text, articles)
     except ValueError as e:
         await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_ARTICLE
     await update.message.reply_text(
-        "<b>Шаг 5 из 5:</b> Добавьте <b>комментарий</b> или отправьте <code>-</code> чтобы пропустить",
+        "<b>Шаг 5 из 5:</b> Добавьте <b>комментарий</b> или нажмите «Пропустить»",
         parse_mode=ParseMode.HTML,
+        reply_markup=SKIP_KEYBOARD,
     )
     return STATE_COMMENT
 
@@ -192,12 +207,40 @@ async def get_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     except ValueError as e:
         await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_COMMENT
-
     await update.message.reply_text(
-        "Прикрепите <b>файл счёта</b> (PDF, изображение) или отправьте <code>-</code> если счёт отсутствует",
+        "Прикрепите <b>файл счёта</b> или нажмите «Пропустить»",
         parse_mode=ParseMode.HTML,
+        reply_markup=SKIP_KEYBOARD,
     )
     return STATE_INVOICE_FILE
+
+
+async def skip_field_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle 'Пропустить' button."""
+    query = update.callback_query
+    await query.answer()
+
+    state = context.user_data.get("__state", "")
+    cur_state = None
+    for s in context.user_data.get("_states", {}):
+        cur_state = s
+        break
+
+    if query.message.text and "Шаг 5" in query.message.text:
+        # Skipping comment
+        context.user_data["comment"] = ""
+        await query.edit_message_text("Комментарий пропущен.")
+        await update.callback_query.message.reply_text(
+            "Прикрепите <b>файл счёта</b> или нажмите «Пропустить»",
+            parse_mode=ParseMode.HTML,
+            reply_markup=SKIP_KEYBOARD,
+        )
+        return STATE_INVOICE_FILE
+    else:
+        # Skipping file
+        context.user_data["invoice_file_bytes"] = None
+        await query.edit_message_text("Файл пропущен.")
+        return await _show_summary(update, context)
 
 
 async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -211,7 +254,7 @@ async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if doc:
         if not check_file_safe(doc.file_size or 0, doc.mime_type):
             await update.message.reply_text(
-                f"❌ Недопустимый формат или размер файла (макс. {settings.max_invoice_file_size_mb} МБ)"
+                f"❌ Недопустимый формат или размер (макс. {settings.max_invoice_file_size_mb} МБ)"
             )
             return STATE_INVOICE_FILE
         fo = await doc.get_file()
@@ -231,7 +274,8 @@ async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return await _show_summary(update, context)
 
     await update.message.reply_text(
-        "Прикрепите файл или отправьте <code>-</code> чтобы пропустить",
+        "Прикрепите файл или нажмите «Пропустить»",
+        reply_markup=SKIP_KEYBOARD,
         parse_mode=ParseMode.HTML,
     )
     return STATE_INVOICE_FILE
@@ -243,25 +287,29 @@ async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def _start_edit_date(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Введите новую <b>плановую дату оплаты</b> (ДД.ММ.ГГГГ):", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Введите новую <b>дату оплаты</b> (ДД.ММ.ГГГГ):", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "date"
     return STATE_EDITING
 
 async def _start_edit_counterparty(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Введите новое <b>наименование контрагента</b>:", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Введите нового <b>контрагента</b>:", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "counterparty"
     return STATE_EDITING
 
 async def _start_edit_amount(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Введите новую <b>сумму и валюту</b> (например, 15000 RUB):", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Введите новую <b>сумму и валюту</b>:", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "amount"
     return STATE_EDITING
 
 async def _start_edit_article(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Выберите <b>статью расхода</b>:\n" + "\n".join(build_article_keyboard()), parse_mode=ParseMode.HTML)
+    articles = await _load_articles(context)
+    await update.callback_query.message.reply_text(
+        "Выберите <b>статью</b>:\n" + "\n".join(build_article_keyboard(articles)),
+        parse_mode=ParseMode.HTML,
+    )
     context.user_data["editing_field"] = "article"
     return STATE_EDITING
 
@@ -273,7 +321,7 @@ async def _start_edit_comment(update, context):
 
 async def _start_edit_file(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Прикрепите новый <b>файл счёта</b> или отправьте <code>-</code>:", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Прикрепите новый <b>файл</b> или отправьте <code>-</code>:", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "file"
     return STATE_EDITING
 
@@ -314,7 +362,8 @@ async def handle_field_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data["currency_code"] = currency.code
             context.user_data["currency_name"] = currency.name_ru
         elif field == "article":
-            context.user_data["article"] = validate_article(text)
+            articles = await _load_articles(context)
+            context.user_data["article"] = validate_article(text, articles)
         elif field == "comment":
             context.user_data["comment"] = validate_comment(text)
         elif field == "file":
@@ -337,7 +386,7 @@ async def handle_field_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     context.user_data["invoice_file_name"] = f"invoice_{date.today().isoformat()}.jpg"
                     context.user_data["invoice_mime_type"] = "image/jpeg"
                 else:
-                    raise ValueError("Прикрепите файл или отправьте <code>-</code>")
+                    raise ValueError("Прикрепите файл или <code>-</code>")
         else:
             return STATE_EDITING
 
@@ -359,7 +408,6 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     ud = context.user_data
     await query.edit_message_text("⏳ Сохраняю заявку...")
 
-    # Загрузка файла в Google Drive
     invoice_link = ""
     try:
         if ud.get("invoice_file_bytes"):
@@ -386,26 +434,24 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             comment=ud.get("comment", ""),
             invoice_link=invoice_link,
         )
-
         await append_row_async(app.to_sheet_row(invoice_link))
 
         await query.message.reply_text(
             f"<b>✅ Заявка сохранена!</b>\n\n"
             f"Контрагент: {app.counterparty}\n"
             f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
-            f"Статья: {app.article.value}\n"
+            f"Статья: {app.article}\n"
             f"Статус: Новый\n"
             f"Счёт: {'загружен' if invoice_link != 'Счёт не приложен' else 'не приложен'}",
             parse_mode=ParseMode.HTML,
         )
 
-        # Авто-уведомление: если плановая дата = сегодня
         if ud["planned_payment_date"] == date.today():
             await _notify_positions(context, app)
 
     except Exception as e:
         logger.error("sheet_write_failed: %s", e)
-        await query.message.reply_text("❌ Ошибка при сохранении заявки. Попробуйте позже.")
+        await query.message.reply_text("❌ Ошибка при сохранении заявки.")
         return ConversationHandler.END
 
     return ConversationHandler.END
@@ -417,21 +463,18 @@ async def _notify_positions(context, app):
     accountants = await get_accountants()
     if not accountants:
         return
-
     text = (
         f"<b>🔔 Срочная заявка на оплату (дата сегодня)</b>\n\n"
         f"От: {app.employee}\n"
         f"Контрагент: {app.counterparty}\n"
         f"Сумма: {app.amount} {app.currency_code}\n"
-        f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}\n"
-        f"Счёт: {'приложен' if app.invoice_link != 'Счёт не приложен' else 'не приложен'}"
+        f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}"
     )
-
     for acc in accountants:
         try:
             await context.bot.send_message(chat_id=acc.telegram_id, text=text, parse_mode=ParseMode.HTML)
         except Exception as e:
-            logger.error("urgent_notify_failed accountant=%s: %s", acc.full_name, e)
+            logger.error("urgent_notify_failed %s: %s", acc.full_name, e)
 
 
 async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -463,8 +506,12 @@ def build_application_handlers() -> list:
             STATE_COUNTERPARTY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_counterparty)],
             STATE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_amount)],
             STATE_ARTICLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_article)],
-            STATE_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_comment)],
+            STATE_COMMENT: [
+                CallbackQueryHandler(skip_field_callback, pattern="^skip_field$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_comment),
+            ],
             STATE_INVOICE_FILE: [
+                CallbackQueryHandler(skip_field_callback, pattern="^skip_field$"),
                 MessageHandler(filters.Document.ALL | filters.PHOTO, get_invoice_file),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_invoice_file),
             ],

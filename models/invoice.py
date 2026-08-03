@@ -3,28 +3,13 @@
 import re
 from datetime import date
 from decimal import Decimal
-from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from data.currencies import Currency
 
 DATE_PATTERN = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
-
 STATUS_DEFAULT = "Новый"
-
-
-class Article(StrEnum):
-    OFFICE_SUPPLIES = "Канцелярия"
-    EQUIPMENT = "Оборудование"
-    SOFTWARE = "ПО и лицензии"
-    RENT = "Аренда"
-    UTILITIES = "Коммунальные услуги"
-    MARKETING = "Маркетинг и реклама"
-    TRAVEL = "Командировки"
-    TRAINING = "Обучение"
-    SERVICES = "Услуги подрядчиков"
-    OTHER = "Прочее"
 
 
 class InvoiceApplication(BaseModel):
@@ -35,7 +20,7 @@ class InvoiceApplication(BaseModel):
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     currency_code: str = Field(default="RUB", min_length=3, max_length=3)
     currency_name: str = Field(default="Российский рубль")
-    article: Article
+    article: str = Field(min_length=1, max_length=200)
     comment: str = Field(default="", max_length=500)
     invoice_link: str = Field(default="", max_length=500)
 
@@ -47,7 +32,7 @@ class InvoiceApplication(BaseModel):
         counterparty: str,
         amount: Decimal,
         currency: Currency,
-        article: Article,
+        article: str,
         comment: str = "",
         invoice_link: str = "",
         entry_date: date | None = None,
@@ -70,14 +55,13 @@ class InvoiceApplication(BaseModel):
         return f"{self.amount} {self.currency_code} ({self.currency_name})"
 
     def to_sheet_row(self, invoice_link: str = "") -> list[str]:
-        """9 columns: A-Дата внесения | B-Плановая дата | C-Сотрудник | D-Контрагент | E-Сумма | F-Статья | G-Статус | H-Комментарий | I-Ссылка"""
         return [
             self.entry_date.strftime("%d.%m.%Y"),
             self.planned_payment_date.strftime("%d.%m.%Y"),
             self.employee,
             self.counterparty,
             f"{self.amount} {self.currency_code}",
-            self.article.value,
+            self.article,
             STATUS_DEFAULT,
             self.comment,
             invoice_link or "Счёт не приложен",

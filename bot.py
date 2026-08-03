@@ -102,6 +102,12 @@ async def main() -> None:
     await application.updater.start_polling(drop_pending_updates=False, poll_interval=0.5, timeout=timedelta(seconds=2))
     logger.info("bot_running")
 
+    # Set menu button
+    await app.bot.set_my_commands([
+        ("start", "Оставить новую заявку"),
+        ("cancel", "Отменить заявку"),
+    ])
+
     await stop.wait()
 
     logger.info("bot_stopping")

@@ -48,3 +48,43 @@ async def append_row_async(row_data: list[str]) -> str:
     import asyncio
 
     return await asyncio.to_thread(append_row, row_data)
+
+
+# Article cache
+_articles_cache: list[str] = []
+_articles_ts: float = 0
+
+
+def get_articles() -> list[str]:
+    """Read article list from Справочник!A:A column."""
+    global _articles_cache, _articles_ts
+    import time
+    now = time.time()
+    if _articles_cache and now - _articles_ts < 300:
+        return _articles_cache
+
+    try:
+        creds = get_credentials()
+        service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=settings.google_sheet_id,
+                range="Справочник!A:A",
+            )
+            .execute()
+        )
+        rows = result.get("values", [])
+        _articles_cache = [r[0].strip() for r in rows if r and r[0].strip()]
+        _articles_ts = now
+        logger.info("articles_loaded count=%d", len(_articles_cache))
+    except Exception as e:
+        logger.error("articles_load_failed: %s", e)
+
+    return _articles_cache
+
+
+async def get_articles_async() -> list[str]:
+    import asyncio
+    return await asyncio.to_thread(get_articles)

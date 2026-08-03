@@ -1,0 +1,99 @@
+{
+  "title": "Invoice Bot Logs",
+  "uid": "invoice-bot-logs",
+  "panels": [
+    {
+      "title": "Bot Events (last 1h)",
+      "type": "logs",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "{app=\"invoice-bot\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true
+      }
+    },
+    {
+      "title": "Events by Level",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({app=\"invoice-bot\"} [1h])) by (level)",
+          "refId": "A",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      }
+    },
+    {
+      "title": "Log Rate",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 8,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "rate({app=\"invoice-bot\"} [1m])",
+          "refId": "A",
+          "legendFormat": "logs/sec"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "bot",
+    "invoice"
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "10s"
+}

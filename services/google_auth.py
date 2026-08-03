@@ -1,8 +1,8 @@
 """Shared OAuth 2.0 authentication for Google APIs.
 
-Uses the user's personal Google account (not a service account).
-On first run: opens browser → user clicks "Allow" → token.json is saved.
-On subsequent runs: reads token.json, auto-refreshes if expired.
+Tries browser-based flow first (run_local_server).
+If running on a headless server, falls back to console flow
+(prints URL, user pastes authorization code).
 """
 
 import logging
@@ -27,11 +27,8 @@ TOKEN_FILE = "token.json"
 def get_credentials() -> Credentials:
     """Return valid user credentials, triggering OAuth flow if needed.
 
-    Flow:
-    1. token.json exists and is valid → return immediately (no browser)
-    2. token.json expired → refresh silently (no browser)
-    3. No token.json → open browser, user consents, save token.json
-    4. No credentials.json → raise clear error with setup instructions
+    Tries browser flow first; if DISPLAY is not set (headless),
+    falls back to console URL flow.
     """
     creds: Credentials | None = None
 
@@ -39,7 +36,7 @@ def get_credentials() -> Credentials:
         try:
             creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         except Exception:
-            logger.warning("token_json_corrupted", path=TOKEN_FILE)
+            logger.warning("token_json_corrupted")
             creds = None
 
     if creds and creds.valid:
@@ -47,7 +44,7 @@ def get_credentials() -> Credentials:
         return creds
 
     if creds and creds.expired and creds.refresh_token:
-        logger.info("google_auth_refreshing_token")
+        logger.info("google_auth_refreshing")
         try:
             creds.refresh(Request())
             _save_token(creds)
@@ -57,29 +54,33 @@ def get_credentials() -> Credentials:
 
     if not Path(CREDENTIALS_FILE).exists():
         raise FileNotFoundError(
-            f"\n❌ Файл {CREDENTIALS_FILE} не найден.\n\n"
+            f"\nФайл {CREDENTIALS_FILE} не найден.\n\n"
             "Как получить:\n"
             "1. Открой https://console.cloud.google.com/apis/credentials\n"
-            "2. Создай OAuth client ID → Desktop application\n"
-            "3. Скачай JSON и сохрани как credentials.json в корне проекта\n"
-            "4. Запусти бота ещё раз\n"
+            "2. Создай OAuth client ID -> Desktop application\n"
+            "3. Скачай JSON -> сохрани как credentials.json в корне проекта\n"
         )
 
-    logger.info("google_auth_starting_oauth_flow")
     flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-    creds = flow.run_local_server(
-        port=0,
-        open_browser=True,
-        success_message="✅ Авторизация успешна! Можете закрыть это окно.",
-    )
+
+    # Try browser flow first; if no display, use console
+    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        logger.info("oauth_using_browser_flow")
+        creds = flow.run_local_server(
+            port=0,
+            open_browser=True,
+            success_message="Авторизация успешна! Можете закрыть окно.",
+        )
+    else:
+        logger.info("oauth_using_console_flow")
+        creds = flow.run_console()
 
     _save_token(creds)
     return creds
 
 
 def _save_token(creds: Credentials) -> None:
-    """Persist credentials to token.json with restricted permissions."""
     with open(TOKEN_FILE, "w") as f:
         f.write(creds.to_json())
     os.chmod(TOKEN_FILE, 0o600)
-    logger.info("token_saved", path=TOKEN_FILE)
+    logger.info("token_saved")

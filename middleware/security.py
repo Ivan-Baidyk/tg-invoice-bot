@@ -1,12 +1,6 @@
 """Security middleware: Bitrix24-based authentication, chat restriction.
 
-Authentication flow:
-  1. Extract Telegram user_id (immutable, server-verified by Telegram)
-  2. Fetch all employees from Bitrix24 (once, cached)
-  3. Look up user by UF_* field matching their Telegram user_id
-  4. Found → allow, store Employee in context.user_data
-  5. Not found → deny: "Доступ к функционалу запрещен. Обратитесь к ответственному лицу"
-  6. Bitrix24 unavailable → fall back to allowed_user_ids
+If ALLOWED_CHAT_ID=0, chat restriction is disabled (development mode).
 """
 
 import logging
@@ -31,6 +25,8 @@ ALLOWED_MIME_TYPES = {
 
 
 def check_chat_allowed(update: Update) -> bool:
+    if settings.allowed_chat_id == 0:
+        return True  # Development mode: allow all chats
     chat = update.effective_chat
     if chat is None:
         return False
@@ -47,25 +43,21 @@ def check_file_safe(file_size: int, mime_type: str | None) -> bool:
 
 
 async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Authenticate against Bitrix24 corporate directory."""
     user = update.effective_user
     if user is None:
         return False
 
-    # Already authenticated
     if "employee_obj" in context.user_data:
         return True
 
     tg_id = user.id
 
-    # Primary: Bitrix24 lookup
     if settings.bitrix24_webhook_url and settings.bitrix24_telegram_field_id:
         employee = await get_employee_by_telegram(tg_id)
         if employee is not None:
             context.user_data["employee_obj"] = employee
             return True
 
-    # Fallback: hardcoded whitelist
     if tg_id in settings.allowed_user_ids:
         logger.warning("b24_unavailable_fallback", tg_user_id=tg_id)
         return True

@@ -1,15 +1,13 @@
-"""Entry point for the Telegram Invoice Bot.
-
-Supports both polling (default) and webhook modes.
-Set WEBHOOK_URL in .env to enable webhook mode.
-"""
+"""Entry point for the Telegram Invoice Bot — with Loki structured logging."""
 
 import asyncio
+import json
 import logging
 import signal
 import sys
 
-from telegram.ext import Application
+from telegram import Update
+from telegram.ext import Application, TypeHandler
 
 from config import settings
 from handlers.application import build_application_handlers
@@ -18,87 +16,93 @@ from middleware.security import security_middleware
 logger = logging.getLogger(__name__)
 
 
+class JsonFormatter(logging.Formatter):
+    """Structured JSON log formatter for Loki."""
+    def format(self, record: logging.LogRecord) -> str:
+        ts = self.formatTime(record, "%Y-%m-%dT%H:%M:%S.%fZ")
+        return json.dumps({
+            "ts": ts,
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+            "module": record.module,
+        }, ensure_ascii=False)
+
+
 def setup_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        stream=sys.stdout,
-    )
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    # Console handler (human-readable)
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(logging.INFO)
+    console.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s", "%H:%M:%S"
+    ))
+    root.addHandler(console)
+
+    # Loki handler (structured JSON) — if configured
+    if settings.loki_url:
+        from services.loki_handler import LokiHandler
+        loki = LokiHandler(settings.loki_url, labels={"app": "invoice-bot"})
+        loki.setLevel(logging.DEBUG)
+        loki.setFormatter(JsonFormatter())
+        loki.start()
+        root.addHandler(loki)
+        logger.info("loki_connected url=%s", settings.loki_url)
+
+    # Silence noisy libs
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("googleapiclient").setLevel(logging.WARNING)
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 
 def build_application() -> Application:
-    app = Application.builder().token(settings.bot_token).build()
-    app.add_handler(security_middleware, group=-1)
+    builder = Application.builder().token(settings.bot_token)
+    if settings.proxy_url:
+        builder.proxy(settings.proxy_url)
+        logger.info("proxy=%s", settings.proxy_url)
 
-    handlers = build_application_handlers()
-    for handler in handlers:
+    app = builder.build()
+    app.add_handler(TypeHandler(Update, security_middleware), group=-1)
+    for handler in build_application_handlers():
         app.add_handler(handler)
-
     return app
-
-
-async def run_polling(app: Application) -> None:
-    """Run bot in polling mode (no public URL needed)."""
-    logger.info("Mode: POLLING")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True)
-    logger.info("Bot is running (polling). Ctrl+C to stop.")
-
-
-async def run_webhook(app: Application) -> None:
-    """Run bot in webhook mode (needs public HTTPS URL)."""
-    logger.info("Mode: WEBHOOK — %s", settings.webhook_url)
-    await app.initialize()
-    await app.start()
-    await app.updater.start_webhook(
-        listen=settings.webhook_listen,
-        port=settings.webhook_port,
-        url_path="webhook",
-        webhook_url=settings.webhook_url,
-        drop_pending_updates=True,
-    )
-    logger.info("Bot is running (webhook on port %s). Ctrl+C to stop.", settings.webhook_port)
 
 
 async def main() -> None:
     setup_logging()
-
-    logger.info("Starting Invoice Bot...")
-    logger.info("chat_id=%s", settings.allowed_chat_id)
-    logger.info("b24_webhook=%s", "yes" if settings.bitrix24_webhook_url else "no")
-    logger.info("webhook_mode=%s", "yes" if settings.use_webhook else "no (polling)")
+    logger.info("bot_starting chat_id=%s b24=%s loki=%s",
+        settings.allowed_chat_id,
+        bool(settings.bitrix24_webhook_url),
+        bool(settings.loki_url),
+    )
 
     application = build_application()
-
     loop = asyncio.get_running_loop()
-    stop_event = asyncio.Event()
+    stop = asyncio.Event()
 
-    def signal_handler() -> None:
-        logger.info("Shutdown signal received")
-        stop_event.set()
-
+    def handler():
+        logger.info("bot_shutdown_signal")
+        stop.set()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, signal_handler)
-        except NotImplementedError:
-            pass
+        try: loop.add_signal_handler(sig, handler)
+        except NotImplementedError: pass
 
-    if settings.use_webhook:
-        await run_webhook(application)
-    else:
-        await run_polling(application)
+    logger.info("bot_polling_start")
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
+    logger.info("bot_running")
 
-    await stop_event.wait()
+    await stop.wait()
 
-    logger.info("Stopping bot...")
+    logger.info("bot_stopping")
     await application.updater.stop()
     await application.stop()
     await application.shutdown()
-    logger.info("Bot stopped.")
+    logger.info("bot_stopped")
 
 
 if __name__ == "__main__":

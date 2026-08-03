@@ -1,8 +1,6 @@
 """Pydantic models for invoice application data with validation."""
+
 import re
-
-DATE_PATTERN = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
-
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -11,12 +9,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from data.currencies import Currency
 
+DATE_PATTERN = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
+
 
 class PaymentStatus(StrEnum):
-    PENDING = "Ожидает оплаты"
+    """Real sheet values: Новый, Оплачено, Отклонено."""
+    NEW = "Новый"
     PAID = "Оплачено"
     REJECTED = "Отклонено"
-    ON_HOLD = "На уточнении"
 
 
 class Article(StrEnum):
@@ -43,7 +43,7 @@ class InvoiceApplication(BaseModel):
     currency_code: str = Field(default="RUB", min_length=3, max_length=3)
     currency_name: str = Field(default="Российский рубль")
     article: Article
-    payment_status: PaymentStatus = PaymentStatus.PENDING
+    payment_status: PaymentStatus = PaymentStatus.NEW
     comment: str = Field(default="", max_length=500)
     invoice_file_id: str | None = None
     invoice_link: str = Field(default="", max_length=500)
@@ -81,17 +81,16 @@ class InvoiceApplication(BaseModel):
 
     @property
     def amount_display(self) -> str:
-        """'15000 RUB (Российский рубль)'"""
         return f"{self.amount} {self.currency_code} ({self.currency_name})"
 
     def to_sheet_row(self, invoice_link: str = "") -> list[str]:
+        """9 columns: Дата внесения | Плановая дата | Сотрудник | Контрагент | Сумма | Статья | Статус | Комментарий | Ссылка"""
         return [
             self.entry_date.strftime("%d.%m.%Y"),
             self.planned_payment_date.strftime("%d.%m.%Y"),
             self.employee,
             self.counterparty,
-            str(self.amount),
-            self.currency_code,
+            f"{self.amount} {self.currency_code}",
             self.article.value,
             self.payment_status.value,
             self.comment,

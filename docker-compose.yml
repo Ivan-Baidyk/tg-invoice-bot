@@ -1,6 +1,7 @@
-# Invoice Bot — Docker Compose
+# Invoice Bot + Monitoring Stack
 # Usage: docker compose up -d
-# Logs:  docker compose logs -f
+# Grafana: http://localhost:3000 (admin/admin)
+# Loki:    http://localhost:3100
 
 services:
   bot:
@@ -9,13 +10,47 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - LOKI_URL=http://loki:3100
     volumes:
-      # Google OAuth token (generated on first run)
       - ./token.json:/app/token.json
-      # Google OAuth credentials (place before starting)
       - ./credentials.json:/app/credentials.json:ro
+    depends_on:
+      - loki
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+  loki:
+    image: grafana/loki:2.9
+    container_name: invoice-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  grafana:
+    image: grafana/grafana:11.0
+    container_name: invoice-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=beoma
+      - GF_SECURITY_ADMIN_PASSWORD=beoma_invoice_2026
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - loki
+
+volumes:
+  loki_data:
+  grafana_data:

@@ -440,7 +440,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         await append_row_async(app.to_sheet_row(invoice_link, invoice_id))
 
         await query.message.reply_text(
-            f"<b>✅ Заявка сохранена!</b>\n\n"
+            f"<b>✅ Заявка №{invoice_id} сохранена!</b>\n\n"
             f"Контрагент: {app.counterparty}\n"
             f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
             f"Статья: {app.article}\n"
@@ -449,7 +449,27 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             parse_mode=ParseMode.HTML,
         )
 
-        await _notify_positions(context, app)
+        # Duplicate to group chat
+        if settings.allowed_chat_id and settings.allowed_chat_id != 0:
+            try:
+                group_info = f"Счёт: {app.invoice_link}" if app.invoice_link and app.invoice_link != "Счёт не приложен" else "Счёт не приложен"
+                await context.bot.send_message(
+                    chat_id=settings.allowed_chat_id,
+                    text=(
+                        f"<b>📋 Новая заявка №{invoice_id}</b>\n\n"
+                        f"Сотрудник: {app.employee}\n"
+                        f"Контрагент: {app.counterparty}\n"
+                        f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
+                        f"Статья: {app.article}\n"
+                        f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}\n"
+                        f"{group_info}"
+                    ),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.error("group_notify_failed: %s", e)
+
+        await _notify_positions(context, app, invoice_id)
 
     except Exception as e:
         logger.error("sheet_write_failed: %s", e)
@@ -468,25 +488,28 @@ async def _notify_positions(context, app, invoice_id: int = 0):
 
     deadline_iso = app.planned_payment_date.strftime("%Y-%m-%d") + "T18:00:00+03:00"
     file_info = f"\nСсылка на счёт: {app.invoice_link}" if app.invoice_link and app.invoice_link != "Счёт не приложен" else ""
+    is_today = app.planned_payment_date == date.today()
 
-    text = (
-        f"<b>📋 Новая заявка на оплату №{invoice_id}</b>\n\n"
-        f"Сотрудник: {app.employee}\n"
-        f"Контрагент: {app.counterparty}\n"
-        f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
-        f"Статья: {app.article}\n"
-        f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}\n"
-        f"Комментарий: {app.comment or '—'}"
-        f"{file_info}"
-    )
+    # Telegram notification only if date = today
+    if is_today:
+        text = (
+            f"<b>📋 Новая заявка на оплату №{invoice_id}</b>\n\n"
+            f"Сотрудник: {app.employee}\n"
+            f"Контрагент: {app.counterparty}\n"
+            f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
+            f"Статья: {app.article}\n"
+            f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}\n"
+            f"Комментарий: {app.comment or '—'}"
+            f"{file_info}"
+        )
+        for acc in accountants:
+            try:
+                await context.bot.send_message(chat_id=acc.telegram_id, text=text, parse_mode=ParseMode.HTML)
+            except Exception as e:
+                logger.error("urgent_notify_failed %s: %s", acc.full_name, e)
 
+    # Bitrix24 task — always
     for acc in accountants:
-        try:
-            await context.bot.send_message(chat_id=acc.telegram_id, text=text, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            logger.error("urgent_notify_failed %s: %s", acc.full_name, e)
-
-        # Create Bitrix24 task
         try:
             task_desc = (
                 f"Заявка №{invoice_id}\n"

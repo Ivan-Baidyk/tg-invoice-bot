@@ -44,6 +44,8 @@ tg-invoice-bot/
 | **Конфигурация** | `pydantic-settings` | Загрузка из `.env` с автоматической валидацией |
 | **Асинхронность** | `asyncio` | PTB v21 работает на asyncio |
 | **Логирование** | `logging` | Стандартная библиотека Python |
+| **Bitrix24** | `httpx` + REST API | Поиск сотрудника по Telegram ID через UF-поле |
+| **Деплой** | Docker + docker-compose | Контейнеризация, auto-restart, ротация логов |
 
 ### Поток данных
 
@@ -124,21 +126,55 @@ tg-invoice-bot/
 
 ### 4. Установка и запуск
 
+#### Вариант А: Интерактивный мастер (рекомендуется)
+
 ```bash
-# Клонирование репозитория
 git clone https://github.com/Ivan-Baidyk/tg-invoice-bot.git
 cd tg-invoice-bot
+python setup.py       # ответить на вопросы — сгенерирует .env
+uv sync               # установить зависимости
+uv run python bot.py  # запустить
+```
 
-# Настройка переменных окружения
+#### Вариант Б: Docker Compose
+
+```bash
+git clone https://github.com/Ivan-Baidyk/tg-invoice-bot.git
+cd tg-invoice-bot
 cp .env.example .env
-# Отредактируйте .env — вставьте реальные значения
+nano .env              # заполнить переменные
+# Положить credentials.json в корень проекта
+docker compose up -d   # запустить в фоне
+docker compose logs -f # смотреть логи
+```
 
-# Установка зависимостей
+#### Вариант В: Ручная настройка
+
+```bash
+git clone https://github.com/Ivan-Baidyk/tg-invoice-bot.git
+cd tg-invoice-bot
+cp .env.example .env
+nano .env              # заполнить переменные
 uv sync
-
-# Запуск
 uv run python bot.py
 ```
+
+### 5. Развёртывание на сервере (production)
+
+Бот работает как **polling-клиент** — ему не нужен публичный URL или вебхук.
+Достаточно запустить Docker-контейнер на любом сервере с доступом в интернет.
+
+```bash
+# На сервере:
+git clone https://github.com/Ivan-Baidyk/tg-invoice-bot.git /opt/invoice-bot
+cd /opt/invoice-bot
+python setup.py
+# Копируем credentials.json в /opt/invoice-bot/
+docker compose up -d
+```
+
+Контейнер настроен на `restart: unless-stopped` — переживает перезагрузки сервера.
+Логи ротируются: максимум 3 файла по 10 МБ.
 
 ### 5. Переменные окружения (`.env`)
 

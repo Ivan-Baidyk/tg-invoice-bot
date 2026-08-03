@@ -1,11 +1,12 @@
-"""Security middleware: Bitrix24-based authentication, chat restriction, file safety.
+"""Security middleware: Bitrix24-based authentication, chat restriction.
 
 Authentication flow:
-  1. Extract Telegram user_id from update (immutable, server-verified)
-  2. Look up user in Bitrix24 corporate directory via custom UF field
-  3. If found → allow, store Employee object in context.user_data
-  4. If not found → deny with clear error message
-  5. If Bitrix24 unavailable → fall back to allowed_user_ids whitelist
+  1. Extract Telegram user_id (immutable, server-verified by Telegram)
+  2. Fetch all employees from Bitrix24 (once, cached)
+  3. Look up user by UF_* field matching their Telegram user_id
+  4. Found → allow, store Employee in context.user_data
+  5. Not found → deny: "Доступ к функционалу запрещен. Обратитесь к ответственному лицу"
+  6. Bitrix24 unavailable → fall back to allowed_user_ids
 """
 
 import logging
@@ -46,22 +47,25 @@ def check_file_safe(file_size: int, mime_type: str | None) -> bool:
 
 
 async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Authenticate user against Bitrix24 corporate directory."""
+    """Authenticate against Bitrix24 corporate directory."""
     user = update.effective_user
     if user is None:
         return False
 
-    tg_id = user.id
-
+    # Already authenticated
     if "employee_obj" in context.user_data:
         return True
 
+    tg_id = user.id
+
+    # Primary: Bitrix24 lookup
     if settings.bitrix24_webhook_url and settings.bitrix24_telegram_field_id:
         employee = await get_employee_by_telegram(tg_id)
-        if employee:
+        if employee is not None:
             context.user_data["employee_obj"] = employee
             return True
 
+    # Fallback: hardcoded whitelist
     if tg_id in settings.allowed_user_ids:
         logger.warning("b24_unavailable_fallback", tg_user_id=tg_id)
         return True
@@ -89,8 +93,7 @@ async def security_middleware(
     if not await authenticate_user(update, context):
         if update.effective_message:
             await update.effective_message.reply_text(
-                "🔒 Ваш Telegram-аккаунт не найден в корпоративной системе Bitrix24. "
-                "Обратитесь к администратору для привязки Telegram к вашему профилю сотрудника."
+                "Доступ к функционалу запрещен. Обратитесь к ответственному лицу"
             )
         return None
 

@@ -1,0 +1,21 @@
+# Invoice Bot — Docker Compose
+# Usage: docker compose up -d
+# Logs:  docker compose logs -f
+
+services:
+  bot:
+    build: .
+    container_name: invoice-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Google OAuth token (generated on first run)
+      - ./token.json:/app/token.json
+      # Google OAuth credentials (place before starting)
+      - ./credentials.json:/app/credentials.json:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

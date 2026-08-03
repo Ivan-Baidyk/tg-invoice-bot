@@ -50,6 +50,7 @@ class InvoiceApplication(BaseModel):
             article=article,
             comment=comment,
             invoice_link=invoice_link,
+            employee_bitrix_id=employee_bitrix_id,
         )
 
     @property

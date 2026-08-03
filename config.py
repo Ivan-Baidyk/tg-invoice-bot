@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     # Google
     google_sheet_id: str
     google_drive_folder_id: str
-    google_sheet_range: str = "A:J"
+    google_sheet_range: str = "A:K"
 
     # Logging
     loki_url: str = ""

@@ -25,7 +25,7 @@ from middleware.security import check_file_safe
 from models.invoice import InvoiceApplication
 from services.bitrix24 import create_task, get_accountants
 from services.google_drive import upload_file_async
-from services.google_sheets import append_row_async, get_articles_async
+from services.google_sheets import append_row_async, get_articles_async, get_next_invoice_id_async
 from validators.fields import (
     build_article_keyboard,
     validate_amount_with_currency,
@@ -436,7 +436,8 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             invoice_link=invoice_link,
             employee_bitrix_id=ud.get("employee_bitrix_id", 0),
         )
-        await append_row_async(app.to_sheet_row(invoice_link))
+        invoice_id = await get_next_invoice_id_async()
+        await append_row_async(app.to_sheet_row(invoice_link, invoice_id))
 
         await query.message.reply_text(
             f"<b>✅ Заявка сохранена!</b>\n\n"

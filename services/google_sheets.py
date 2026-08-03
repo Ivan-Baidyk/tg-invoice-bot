@@ -108,3 +108,37 @@ def get_articles() -> list[str]:
 async def get_articles_async() -> list[str]:
     import asyncio
     return await asyncio.to_thread(get_articles)
+
+
+def get_next_invoice_id() -> int:
+    """Read last ID from column A and return next number."""
+    try:
+        creds = get_credentials()
+        service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=settings.google_sheet_id,
+                range="A:A",
+            )
+            .execute()
+        )
+        rows = result.get("values", [])
+        if len(rows) <= 1:
+            return 1  # Only header row
+        max_id = 0
+        for r in rows[1:]:  # Skip header
+            try:
+                max_id = max(max_id, int(r[0]))
+            except (ValueError, IndexError):
+                pass
+        return max_id + 1
+    except Exception as e:
+        logger.error("get_next_id_failed: %s", e)
+        return 0
+
+
+async def get_next_invoice_id_async() -> int:
+    import asyncio
+    return await asyncio.to_thread(get_next_invoice_id)

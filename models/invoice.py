@@ -56,8 +56,10 @@ class InvoiceApplication(BaseModel):
     def amount_display(self) -> str:
         return f"{self.amount} {self.currency_code} ({self.currency_name})"
 
-    def to_sheet_row(self, invoice_link: str = "") -> list[str]:
+    def to_sheet_row(self, invoice_link: str = "", invoice_id: int = 0) -> list[str]:
+        """A=ID B=Дата внесения C=План.дата D=Сотрудник E=Контрагент F=Сумма G=Статья H=Статус I=Комментарий J=Ссылка K=ID сотрудника"""
         return [
+            str(invoice_id),
             self.entry_date.strftime("%d.%m.%Y"),
             self.planned_payment_date.strftime("%d.%m.%Y"),
             self.employee,

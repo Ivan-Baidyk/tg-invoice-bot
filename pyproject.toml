@@ -18,8 +18,8 @@ dependencies = [
 [project.scripts]
 tg-invoice-bot = "bot:main"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.6",

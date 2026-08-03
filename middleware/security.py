@@ -1,4 +1,4 @@
-"""Security middleware: Bitrix24 authentication only."""
+"""Security middleware: Bitrix24 authentication on every message."""
 
 import logging
 
@@ -34,7 +34,6 @@ async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     tg_id = user.id
 
-    # Check Bitrix24 (cache refreshes every 60s)
     if settings.bitrix24_webhook_url and settings.bitrix24_telegram_field_id:
         employee = await get_employee_by_telegram(tg_id)
         if employee is not None:
@@ -42,7 +41,6 @@ async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             logger.info("auth_ok b24 user=%s tg=%s pos=%s", employee.full_name, tg_id, employee.position)
             return True
 
-    # Denied — clear conversation state
     context.user_data.clear()
     logger.warning("auth_denied tg=%s", tg_id)
     return False
@@ -61,5 +59,5 @@ async def security_middleware(
             await update.effective_message.reply_text(
                 "Доступ закрыт. Обратись к руководителю отдела"
             )
-        return None
+        return True  # Block ConversationHandler on deny
     return None

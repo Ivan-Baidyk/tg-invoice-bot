@@ -421,10 +421,13 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
                 mime_type=ud.get("invoice_mime_type", "application/pdf"),
             )
             invoice_link = web_link
+            # Free memory — file bytes no longer needed
+            ud["invoice_file_bytes"] = None
         else:
             invoice_link = "Счёт не приложен"
     except Exception as e:
         logger.error("drive_upload_failed: %s", e)
+        ud["invoice_file_bytes"] = None
 
     try:
         app = InvoiceApplication.from_validated(

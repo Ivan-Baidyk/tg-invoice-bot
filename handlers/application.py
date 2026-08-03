@@ -5,6 +5,7 @@ import asyncio
 Статьи загружаются динамически из листа «Справочник» Google Таблицы.
 """
 
+import gc
 import logging
 from datetime import date
 from typing import cast
@@ -428,11 +429,13 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             invoice_link = web_link
             # Free memory — file bytes no longer needed
             ud["invoice_file_bytes"] = None
+            gc.collect()
         else:
             invoice_link = "Счёт не приложен"
     except Exception as e:
         logger.error("drive_upload_failed: %s", e)
         ud["invoice_file_bytes"] = None
+        gc.collect()
 
     try:
         app = InvoiceApplication.from_validated(

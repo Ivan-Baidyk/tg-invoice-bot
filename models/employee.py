@@ -16,8 +16,8 @@ class Employee:
 
     @property
     def full_name(self) -> str:
-        """ФИО: Фамилия Имя Отчество. Falls back to 'Сотрудник #ID'."""
-        parts = [p for p in [self.last_name, self.first_name, self.second_name] if p]
+        """Имя Фамилия. Falls back to 'Сотрудник #ID'."""
+        parts = [p for p in [self.first_name, self.last_name] if p]
         if parts:
             return " ".join(parts)
         return f"Сотрудник #{self.bitrix_id}"

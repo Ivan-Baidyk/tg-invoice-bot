@@ -459,7 +459,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 
-async def _notify_positions(context, app):
+async def _notify_positions(context, app, invoice_id: int = 0):
     if not settings.urgent_notify_positions:
         return
     accountants = await get_accountants()
@@ -467,12 +467,17 @@ async def _notify_positions(context, app):
         return
 
     deadline_iso = app.planned_payment_date.strftime("%Y-%m-%d") + "T18:00:00+03:00"
+    file_info = f"\nСсылка на счёт: {app.invoice_link}" if app.invoice_link and app.invoice_link != "Счёт не приложен" else ""
+
     text = (
-        f"<b>🔔 Срочная заявка на оплату (дата сегодня)</b>\n\n"
-        f"От: {app.employee}\n"
+        f"<b>📋 Новая заявка на оплату №{invoice_id}</b>\n\n"
+        f"Сотрудник: {app.employee}\n"
         f"Контрагент: {app.counterparty}\n"
-        f"Сумма: {app.amount} {app.currency_code}\n"
-        f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}"
+        f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
+        f"Статья: {app.article}\n"
+        f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}\n"
+        f"Комментарий: {app.comment or '—'}"
+        f"{file_info}"
     )
 
     for acc in accountants:
@@ -483,13 +488,18 @@ async def _notify_positions(context, app):
 
         # Create Bitrix24 task
         try:
+            task_desc = (
+                f"Заявка №{invoice_id}\n"
+                f"Контрагент: {app.counterparty}\n"
+                f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
+                f"Статья: {app.article}\n"
+                f"Сотрудник: {app.employee}\n"
+                f"Комментарий: {app.comment or '—'}"
+                f"{file_info}"
+            )
             await create_task(
-                title=f"Срочная оплата: {app.counterparty} — {app.amount} {app.currency_code}",
-                description=f"Контрагент: {app.counterparty}\n"
-                            f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
-                            f"Статья: {app.article}\n"
-                            f"Сотрудник: {app.employee}\n"
-                            f"Комментарий: {app.comment or '—'}",
+                title=f"Оплата счёта №{invoice_id}: {app.counterparty} — {app.amount} {app.currency_code}",
+                description=task_desc,
                 responsible_id=acc.bitrix_id,
                 created_by=app.employee_bitrix_id,
                 deadline=deadline_iso,

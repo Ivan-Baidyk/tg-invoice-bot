@@ -23,7 +23,9 @@ async def _fetch_all_employees() -> list[Employee]:
 
     Result is cached — org structure doesn't change mid-session.
     """
-    # Always fetch fresh data
+    # Always fetch fresh data — clear cache before re-populating
+    _cache.by_telegram.clear()
+    _cache.all_employees.clear()
 
     url = f"{settings.bitrix24_webhook_url}/user.get"
     field = settings.bitrix24_telegram_field_id

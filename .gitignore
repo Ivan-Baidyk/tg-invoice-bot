@@ -9,7 +9,6 @@ venv/
 # Environment
 .env
 credentials.json
-token.json
 
 # IDE
 .idea/
@@ -23,4 +22,3 @@ Thumbs.db
 
 # Logs
 *.log
-token.json

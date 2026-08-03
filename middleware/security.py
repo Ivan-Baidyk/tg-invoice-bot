@@ -32,12 +32,9 @@ async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if user is None:
         return False
 
-    if "employee_obj" in context.user_data:
-        return True
-
     tg_id = user.id
 
-    # Bitrix24 lookup only — no fallback
+    # Check Bitrix24 (cache refreshes every 60s)
     if settings.bitrix24_webhook_url and settings.bitrix24_telegram_field_id:
         employee = await get_employee_by_telegram(tg_id)
         if employee is not None:
@@ -45,6 +42,8 @@ async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             logger.info("auth_ok b24 user=%s tg=%s pos=%s", employee.full_name, tg_id, employee.position)
             return True
 
+    # Denied — clear conversation state
+    context.user_data.clear()
     logger.warning("auth_denied tg=%s", tg_id)
     return False
 
@@ -60,7 +59,7 @@ async def security_middleware(
     if not await authenticate_user(update, context):
         if update.effective_message:
             await update.effective_message.reply_text(
-                "Доступ к функционалу запрещен. Обратитесь к ответственному лицу"
+                "Доступ закрыт. Обратись к руководителю отдела"
             )
         return None
     return None

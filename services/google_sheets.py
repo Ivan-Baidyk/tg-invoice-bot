@@ -73,16 +73,17 @@ def get_articles() -> list[str]:
             fields="sheets.properties",
         ).execute()
 
-        # Find sheet with matching title (case-insensitive)
+        # Find sheet by gid=1004180925 (Справчник)
+        ARTICLE_SHEET_GID = 1004180925
         sheet_name = None
         for s in meta.get("sheets", []):
-            title = s.get("properties", {}).get("title", "")
-            if "справочник" in title.lower():
-                sheet_name = title
+            props = s.get("properties", {})
+            if props.get("sheetId") == ARTICLE_SHEET_GID:
+                sheet_name = props.get("title", "")
                 break
 
         if not sheet_name:
-            logger.error("articles_sheet_not_found")
+            logger.error("articles_sheet_not_found gid=%d", ARTICLE_SHEET_GID)
             return _articles_cache or []
 
         result = (

@@ -585,5 +585,6 @@ def build_application_handlers() -> list:
         fallbacks=[CommandHandler("cancel", cancel_application)],
         name="invoice_application",
         persistent=False,
+        allow_reentry=True,
     )
     return [conv_handler]

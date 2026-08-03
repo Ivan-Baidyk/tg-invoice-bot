@@ -103,7 +103,7 @@ async def main() -> None:
     logger.info("bot_running")
 
     # Set menu button
-    await app.bot.set_my_commands([
+    await application.bot.set_my_commands([
         ("start", "Оставить новую заявку"),
         ("cancel", "Отменить заявку"),
     ])

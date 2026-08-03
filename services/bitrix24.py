@@ -91,14 +91,14 @@ async def get_employee_by_telegram(tg_user_id: int) -> Employee | None:
 
 
 async def get_accountants() -> list[Employee]:
-    """Return all employees with 'Бухгалтер' in WORK_POSITION.
-
-    Used for urgent payment notifications in DM.
-    """
+    """Return employees matching URGENT_NOTIFY_POSITIONS with Telegram ID."""
     employees = await _fetch_all_employees()
+    if not settings.urgent_notify_positions:
+        return []
+    positions_lower = [p.lower() for p in settings.urgent_notify_positions]
     return [
         e for e in employees
-        if e.is_accountant and e.telegram_id
+        if e.telegram_id and any(p in e.position.lower() for p in positions_lower)
     ]
 
 

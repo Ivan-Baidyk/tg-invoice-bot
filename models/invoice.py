@@ -61,7 +61,6 @@ class InvoiceApplication(BaseModel):
         payment_status: PaymentStatus,
         comment: str = "",
         invoice_link: str = "",
-        is_urgent: bool = False,
         entry_date: date | None = None,
     ) -> "InvoiceApplication":
         return cls(
@@ -76,7 +75,6 @@ class InvoiceApplication(BaseModel):
             payment_status=payment_status,
             comment=comment,
             invoice_link=invoice_link,
-            is_urgent=is_urgent,
         )
 
     @property

@@ -5,6 +5,7 @@ import json
 import logging
 import signal
 import sys
+from datetime import timedelta
 
 from telegram import Update
 from telegram.ext import Application, TypeHandler
@@ -30,11 +31,14 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging() -> None:
+    # Force unbuffered output for background process visibility
+    sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
     # Console handler (human-readable)
     console = logging.StreamHandler(sys.stdout)
+    console.setLevel(logging.INFO)
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s", "%H:%M:%S"
@@ -62,6 +66,8 @@ def build_application() -> Application:
     builder = Application.builder().token(settings.bot_token)
     if settings.proxy_url:
         builder.proxy(settings.proxy_url)
+        # Longer timeouts for proxy connections
+        builder.connect_timeout(15).read_timeout(15).write_timeout(15).pool_timeout(15)
         logger.info("proxy=%s", settings.proxy_url)
 
     app = builder.build()
@@ -93,7 +99,7 @@ async def main() -> None:
     logger.info("bot_polling_start")
     await application.initialize()
     await application.start()
-    await application.updater.start_polling(drop_pending_updates=True)
+    await application.updater.start_polling(drop_pending_updates=False, poll_interval=0.5, timeout=timedelta(seconds=2))
     logger.info("bot_running")
 
     await stop.wait()

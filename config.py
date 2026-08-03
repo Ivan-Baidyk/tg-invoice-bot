@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     # Telegram
     bot_token: str
     allowed_chat_id: int = 0
-    allowed_user_ids: list[int] = []
     proxy_url: str = ""
     webhook_url: str = ""
     webhook_port: int = 8443
@@ -20,13 +19,14 @@ class Settings(BaseSettings):
     # Bitrix24
     bitrix24_webhook_url: str = ""
     bitrix24_telegram_field_id: str = ""
+    urgent_notify_positions: list[str] = []  # Должности для срочных уведомлений
 
     # Google
     google_sheet_id: str
     google_drive_folder_id: str
     google_sheet_range: str = "A:I"
 
-    # Loki (Grafana logging)
+    # Logging
     loki_url: str = ""
 
     # Security

@@ -1,8 +1,8 @@
 """Conversation handler for the invoice application flow.
 
-- Multi-step dialog with currency-aware amount validation
-- HTML summary with inline "Изменить" buttons for each field
-- Callback-based field editing with re-confirmation
+- Multi-step dialog with currency validation
+- HTML summary with inline edit buttons
+- Auto-urgent notification: if planned_date == today -> notify positions
 """
 
 import logging
@@ -48,43 +48,39 @@ logger = logging.getLogger(__name__)
     STATE_COMMENT,
     STATE_STATUS,
     STATE_INVOICE_FILE,
-    STATE_URGENCY,
     STATE_CONFIRM,
     STATE_EDITING,
-) = range(10)
+) = range(9)
 
 
 def _build_summary_html(ud: dict) -> str:
-    file_status = "приложен" if ud.get("invoice_file_bytes") else "не приложен"
-    urgency = "Срочно" if ud.get("is_urgent") else "Обычная"
+    file_status = "prikrep(len" if ud.get("invoice_file_bytes") else "ne prikrep(len"
     cn = ud.get("currency_name", "")
     return (
-        "<b>Проверьте данные заявки:</b>\n\n"
-        f"<b>Дата оплаты:</b> {ud['planned_payment_date'].strftime('%d.%m.%Y')}\n"
-        f"<b>Контрагент:</b> {ud['counterparty']}\n"
-        f"<b>Сумма:</b> {ud['amount']} {ud['currency_code']} ({cn})\n"
-        f"<b>Статья:</b> {ud['article'].value}\n"
-        f"<b>Статус:</b> {ud['payment_status'].value}\n"
-        f"<b>Комментарий:</b> {ud['comment'] or '—'}\n"
-        f"<b>Файл счёта:</b> {file_status}\n"
-        f"<b>Срочность:</b> {urgency}\n\n"
-        "<i>Нажмите кнопку для изменения поля</i>"
+        "<b>Proverte dannye zayavki:</b>\n\n"
+        f"<b>Data oplaty:</b> {ud['planned_payment_date'].strftime('%d.%m.%Y')}\n"
+        f"<b>Kontragent:</b> {ud['counterparty']}\n"
+        f"<b>Summa:</b> {ud['amount']} {ud['currency_code']} ({cn})\n"
+        f"<b>Statya:</b> {ud['article'].value}\n"
+        f"<b>Status:</b> {ud['payment_status'].value}\n"
+        f"<b>Kommentariy:</b> {ud['comment'] or '---'}\n"
+        f"<b>Fayl scheta:</b> {file_status}\n\n"
+        "<i>Nazhmite knopku dlya izmeneniya polya</i>"
     )
 
 
 def _build_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Дату оплаты", callback_data="edit:date")],
-        [InlineKeyboardButton("🏢 Контрагента", callback_data="edit:counterparty")],
-        [InlineKeyboardButton("💰 Сумму / Валюту", callback_data="edit:amount")],
-        [InlineKeyboardButton("📂 Статью", callback_data="edit:article")],
-        [InlineKeyboardButton("📋 Статус", callback_data="edit:status")],
-        [InlineKeyboardButton("💬 Комментарий", callback_data="edit:comment")],
-        [InlineKeyboardButton("📎 Файл счёта", callback_data="edit:file")],
-        [InlineKeyboardButton("🔥 Срочность", callback_data="edit:urgency")],
+        [InlineKeyboardButton("Data oplaty", callback_data="edit:date")],
+        [InlineKeyboardButton("Kontragent", callback_data="edit:counterparty")],
+        [InlineKeyboardButton("Summa / Valyuta", callback_data="edit:amount")],
+        [InlineKeyboardButton("Statya", callback_data="edit:article")],
+        [InlineKeyboardButton("Status", callback_data="edit:status")],
+        [InlineKeyboardButton("Kommentariy", callback_data="edit:comment")],
+        [InlineKeyboardButton("Fayl scheta", callback_data="edit:file")],
         [
-            InlineKeyboardButton("✅ Подтвердить", callback_data="confirm"),
-            InlineKeyboardButton("❌ Отмена", callback_data="cancel_app"),
+            InlineKeyboardButton("Podtverdit", callback_data="confirm"),
+            InlineKeyboardButton("Otmena", callback_data="cancel_app"),
         ],
     ])
 
@@ -103,25 +99,24 @@ async def _show_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if user is None:
-        await update.message.reply_text("Ошибка идентификации.")
         return ConversationHandler.END
     employee = context.user_data.get("employee_obj")
     if employee is None:
-        await update.message.reply_text("Доступ к функционалу запрещен. Обратитесь к ответственному лицу")
         return ConversationHandler.END
+
     context.user_data["employee"] = employee.full_name
     context.user_data["tg_user_id"] = user.id
     context.user_data["entry_date"] = date.today()
-    context.user_data["invoice_file_id"] = None
     context.user_data["invoice_file_bytes"] = None
     context.user_data["invoice_file_name"] = None
     context.user_data["invoice_mime_type"] = None
+
     await update.message.reply_text(
-        f"<b>Новая заявка на оплату счёта</b>\n\n"
-        f"Сотрудник: <b>{employee.full_name}</b>\n"
-        f"Должность: <i>{employee.position}</i>\n\n"
-        "В любой момент /cancel для отмены.\n\n"
-        "<b>Шаг 1/7:</b> Укажите <b>плановую дату оплаты</b> (ДД.ММ.ГГГГ)",
+        f"<b>Novaya zayavka na oplatu scheta</b>\n\n"
+        f"Sotrudnik: <b>{employee.full_name}</b>\n"
+        f"Dolzhnost: <i>{employee.position}</i>\n\n"
+        "/cancel dlya otmeny.\n\n"
+        "<b>Shag 1/6:</b> Ukazhite <b>planovuyu datu oplaty</b> (DD.MM.GGGG)",
         parse_mode=ParseMode.HTML,
     )
     return STATE_PLANNED_DATE
@@ -131,9 +126,9 @@ async def get_planned_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         context.user_data["planned_payment_date"] = validate_date(update.message.text)
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
+        await update.message.reply_text(f"X {e}\nPoprobuyte eshche raz:")
         return STATE_PLANNED_DATE
-    await update.message.reply_text("<b>Шаг 2/7:</b> Введите <b>наименование контрагента</b>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("<b>Shag 2/6:</b> Vvedite <b>naimenovanie kontragenta</b>", parse_mode=ParseMode.HTML)
     return STATE_COUNTERPARTY
 
 
@@ -141,10 +136,10 @@ async def get_counterparty(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         context.user_data["counterparty"] = validate_counterparty(update.message.text)
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
+        await update.message.reply_text(f"X {e}\nPoprobuyte eshche raz:")
         return STATE_COUNTERPARTY
     await update.message.reply_text(
-        "<b>Шаг 3/7:</b> Введите <b>сумму и код валюты</b>\nПример: <code>15000 RUB</code> или <code>5000 USD</code>",
+        "<b>Shag 3/6:</b> Vvedite <b>summu i kod valyuty</b>\nPrimer: <code>15000 RUB</code>",
         parse_mode=ParseMode.HTML,
     )
     return STATE_AMOUNT
@@ -160,8 +155,8 @@ async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text(str(e), parse_mode=ParseMode.HTML)
         return STATE_AMOUNT
     await update.message.reply_text(
-        f"✅ {amount} {currency.code} — {currency.name_ru}\n\n"
-        + "<b>Шаг 4/7:</b> " + "\n".join(build_article_keyboard()),
+        f"OK {amount} {currency.code} --- {currency.name_ru}\n\n"
+        + "<b>Shag 4/6:</b> " + "\n".join(build_article_keyboard()),
         parse_mode=ParseMode.HTML,
     )
     return STATE_ARTICLE
@@ -171,10 +166,10 @@ async def get_article(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     try:
         context.user_data["article"] = validate_article(update.message.text)
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
+        await update.message.reply_text(f"X {e}\nPoprobuyte eshche raz:")
         return STATE_ARTICLE
     await update.message.reply_text(
-        "<b>Шаг 5/7:</b> Добавьте <b>комментарий</b> или отправьте <code>-</code>",
+        "<b>Shag 5/6:</b> Dobavte <b>kommentariy</b> ili otpravte <code>-</code>",
         parse_mode=ParseMode.HTML,
     )
     return STATE_COMMENT
@@ -184,10 +179,10 @@ async def get_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     try:
         context.user_data["comment"] = validate_comment(update.message.text)
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
+        await update.message.reply_text(f"X {e}\nPoprobuyte eshche raz:")
         return STATE_COMMENT
     await update.message.reply_text(
-        "<b>Шаг 6/7:</b> " + "\n".join(build_status_keyboard()),
+        "<b>Shag 6/6:</b> " + "\n".join(build_status_keyboard()),
         parse_mode=ParseMode.HTML,
     )
     return STATE_STATUS
@@ -197,10 +192,10 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         context.user_data["payment_status"] = validate_status(update.message.text)
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
+        await update.message.reply_text(f"X {e}\nPoprobuyte eshche raz:")
         return STATE_STATUS
     await update.message.reply_text(
-        "<b>Шаг 7/7:</b> Прикрепите <b>файл счёта</b> или отправьте <code>-</code>",
+        "<b>Fayl scheta:</b> Prikrepite fayl ili otpravte <code>-</code>",
         parse_mode=ParseMode.HTML,
     )
     return STATE_INVOICE_FILE
@@ -209,93 +204,74 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.message.text and update.message.text.strip() == "-":
         context.user_data["invoice_file_bytes"] = None
-        return await ask_urgency(update, context)
+        return await _show_summary(update, context)
+
     doc = update.message.document
     photo = update.message.photo
     if doc:
         if not check_file_safe(doc.file_size or 0, doc.mime_type):
-            await update.message.reply_text(f"❌ Недопустимый формат или размер (макс. {settings.max_invoice_file_size_mb} МБ)")
+            await update.message.reply_text(f"X Nedopustimyy format ili razmer (maks. {settings.max_invoice_file_size_mb} MB)")
             return STATE_INVOICE_FILE
-        file_obj = await doc.get_file()
-        fb = await file_obj.download_as_bytearray()
+        fo = await doc.get_file()
+        fb = await fo.download_as_bytearray()
         context.user_data["invoice_file_bytes"] = bytes(fb)
         context.user_data["invoice_file_name"] = doc.file_name or "invoice"
         context.user_data["invoice_mime_type"] = doc.mime_type or "application/pdf"
-        return await ask_urgency(update, context)
+        return await _show_summary(update, context)
     if photo:
         largest = photo[-1]
-        file_obj = await largest.get_file()
-        fb = await file_obj.download_as_bytearray()
+        fo = await largest.get_file()
+        fb = await fo.download_as_bytearray()
         context.user_data["invoice_file_bytes"] = bytes(fb)
         context.user_data["invoice_file_name"] = f"invoice_{date.today().isoformat()}.jpg"
         context.user_data["invoice_mime_type"] = "image/jpeg"
-        return await ask_urgency(update, context)
-    await update.message.reply_text("Прикрепите файл или отправьте <code>-</code>", parse_mode=ParseMode.HTML)
+        return await _show_summary(update, context)
+    await update.message.reply_text("Prikrepite fayl ili otpravte <code>-</code>", parse_mode=ParseMode.HTML)
     return STATE_INVOICE_FILE
-
-
-async def ask_urgency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "Заявка <b>срочная</b>? Отправьте <code>да</code> или <code>нет</code>",
-        parse_mode=ParseMode.HTML,
-    )
-    return STATE_URGENCY
-
-
-async def get_urgency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text.strip().lower()
-    context.user_data["is_urgent"] = text in ("да", "yes", "1", "д", "y")
-    return await _show_summary(update, context)
 
 
 # --- inline editing ---
 
 async def _start_edit_date(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Введите новую <b>дату оплаты</b> (ДД.ММ.ГГГГ):", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Vvedite novuyu <b>datu oplaty</b> (DD.MM.GGGG):", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "date"
     return STATE_EDITING
 
 async def _start_edit_counterparty(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Введите нового <b>контрагента</b>:", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Vvedite novogo <b>kontragenta</b>:", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "counterparty"
     return STATE_EDITING
 
 async def _start_edit_amount(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Введите новую <b>сумму и валюту</b> (напр. 15000 RUB):", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Vvedite novuyu <b>summu i valyutu</b> (napr. 15000 RUB):", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "amount"
     return STATE_EDITING
 
 async def _start_edit_article(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Выберите <b>статью</b>:\n" + "\n".join(build_article_keyboard()), parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Vyberite <b>statyu</b>:\n" + "\n".join(build_article_keyboard()), parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "article"
     return STATE_EDITING
 
 async def _start_edit_status(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Выберите <b>статус</b>:\n" + "\n".join(build_status_keyboard()), parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Vyberite <b>status</b>:\n" + "\n".join(build_status_keyboard()), parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "status"
     return STATE_EDITING
 
 async def _start_edit_comment(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Введите новый <b>комментарий</b> или <code>-</code>:", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Vvedite novyy <b>kommentariy</b> ili <code>-</code>:", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "comment"
     return STATE_EDITING
 
 async def _start_edit_file(update, context):
     await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Прикрепите новый <b>файл</b> или отправьте <code>-</code>:", parse_mode=ParseMode.HTML)
+    await update.callback_query.message.reply_text("Prikrepite novyy <b>fayl</b> ili otpravte <code>-</code>:", parse_mode=ParseMode.HTML)
     context.user_data["editing_field"] = "file"
-    return STATE_EDITING
-
-async def _start_edit_urgency(update, context):
-    await update.callback_query.answer()
-    await update.callback_query.message.reply_text("Срочно? <code>да</code> или <code>нет</code>:", parse_mode=ParseMode.HTML)
-    context.user_data["editing_field"] = "urgency"
     return STATE_EDITING
 
 
@@ -307,7 +283,6 @@ EDIT_ROUTER = {
     "status": _start_edit_status,
     "comment": _start_edit_comment,
     "file": _start_edit_file,
-    "urgency": _start_edit_urgency,
 }
 
 
@@ -361,13 +336,10 @@ async def handle_field_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     context.user_data["invoice_file_name"] = f"invoice_{date.today().isoformat()}.jpg"
                     context.user_data["invoice_mime_type"] = "image/jpeg"
                 else:
-                    raise ValueError("Прикрепите файл или <code>-</code>")
-        elif field == "urgency":
-            t = text.strip().lower()
-            context.user_data["is_urgent"] = t in ("да", "yes", "1", "д", "y")
+                    raise ValueError("Prikrepite fayl ili <code>-</code>")
         else:
             return STATE_EDITING
-        await update.message.reply_text("✅ Обновлено.", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("OK Obnovleno.", parse_mode=ParseMode.HTML)
         return await _show_summary(update, context)
     except ValueError as e:
         await update.message.reply_text(str(e), parse_mode=ParseMode.HTML)
@@ -378,7 +350,8 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     ud = context.user_data
-    await query.edit_message_text("⏳ Сохраняю заявку...")
+    await query.edit_message_text("... Sokhranyayu zayavku ...")
+
     invoice_link = ""
     try:
         if ud.get("invoice_file_bytes"):
@@ -389,9 +362,10 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             )
             invoice_link = web_link
         else:
-            invoice_link = "Счёт не приложен"
+            invoice_link = "Schet ne prikrep(len"
     except Exception as e:
         logger.error("drive_upload_failed", error=str(e))
+
     try:
         app = InvoiceApplication.from_validated(
             entry_date=ud["entry_date"],
@@ -404,38 +378,48 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             payment_status=ud["payment_status"],
             comment=ud.get("comment", ""),
             invoice_link=invoice_link,
-            is_urgent=ud.get("is_urgent", False),
         )
         await append_row_async(app.to_sheet_row(invoice_link))
+
         await query.message.reply_text(
-            f"<b>✅ Заявка сохранена!</b>\n\n"
-            f"Контрагент: {app.counterparty}\n"
-            f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
-            f"Статус: {app.payment_status.value}\n"
-            f"Счёт: {'загружен' if invoice_link != 'Счёт не приложен' else 'не приложен'}",
+            f"<b>OK Zayavka sokhranena!</b>\n\n"
+            f"Kontragent: {app.counterparty}\n"
+            f"Summa: {app.amount} {app.currency_code} ({app.currency_name})\n"
+            f"Status: {app.payment_status.value}\n"
+            f"Sche(t: {'zagruzhen' if invoice_link != 'Schet ne prikrep(len' else 'ne prikrep(len'}",
             parse_mode=ParseMode.HTML,
         )
-        if ud.get("is_urgent"):
-            await _notify_accountants(context, app)
+
+        # Auto-urgent: notify if planned_date == today
+        if ud["planned_payment_date"] == date.today():
+            await _notify_positions(context, app)
+
     except Exception as e:
         logger.error("sheet_write_failed", error=str(e))
-        await query.message.reply_text("❌ Ошибка сохранения заявки.")
+        await query.message.reply_text("X Oshibka sokhraneniya zayavki.")
         return ConversationHandler.END
+
     return ConversationHandler.END
 
 
-async def _notify_accountants(context, app):
+async def _notify_positions(context, app):
+    """Notify employees whose position matches URGENT_NOTIFY_POSITIONS."""
+    if not settings.urgent_notify_positions:
+        return
+
     accountants = await get_accountants()
     if not accountants:
         return
+
     text = (
-        f"<b>Срочная заявка на оплату</b>\n\n"
-        f"От: {app.employee}\n"
-        f"Контрагент: {app.counterparty}\n"
-        f"Сумма: {app.amount} {app.currency_code}\n"
-        f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}\n"
-        f"Счёт: {'приложен' if app.invoice_link != 'Счёт не приложен' else 'не приложен'}"
+        f"<b>Srochnaya zayavka na oplatu (data segodnya)</b>\n\n"
+        f"Ot: {app.employee}\n"
+        f"Kontragent: {app.counterparty}\n"
+        f"Summa: {app.amount} {app.currency_code}\n"
+        f"Data oplaty: {app.planned_payment_date.strftime('%d.%m.%Y')}\n"
+        f"Sche(t: {'prikrep(len' if app.invoice_link != 'Schet ne prikrep(len' else 'ne prikrep(len'}"
     )
+
     for acc in accountants:
         try:
             await context.bot.send_message(chat_id=acc.telegram_id, text=text, parse_mode=ParseMode.HTML)
@@ -446,13 +430,13 @@ async def _notify_accountants(context, app):
 async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("🚫 Заявка отменена.")
+    await query.edit_message_text("Otmeneno.")
     context.user_data.clear()
     return ConversationHandler.END
 
 
 async def cancel_application(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("🚫 Заявка отменена.")
+    await update.message.reply_text("Otmeneno.")
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -474,7 +458,6 @@ def build_application_handlers() -> list:
                 MessageHandler(filters.Document.ALL | filters.PHOTO, get_invoice_file),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_invoice_file),
             ],
-            STATE_URGENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_urgency)],
             STATE_CONFIRM: [
                 CallbackQueryHandler(handle_edit_callback, pattern="^edit:"),
                 CallbackQueryHandler(handle_confirm_callback, pattern="^confirm$"),

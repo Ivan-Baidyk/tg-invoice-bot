@@ -409,6 +409,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     ud = context.user_data
     await query.edit_message_text("⏳ Сохраняю заявку...")
 
+    invoice_id = await get_next_invoice_id_async()
     invoice_link = ""
     try:
         if ud.get("invoice_file_bytes"):
@@ -440,7 +441,6 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             invoice_link=invoice_link,
             employee_bitrix_id=ud.get("employee_bitrix_id", 0),
         )
-        invoice_id = await get_next_invoice_id_async()
         await append_row_async(app.to_sheet_row(invoice_link, invoice_id))
 
         await query.message.reply_text(

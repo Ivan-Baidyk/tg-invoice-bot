@@ -7,6 +7,7 @@ If running on a headless server, falls back to console flow
 
 import logging
 import os
+import urllib.parse
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -64,30 +65,29 @@ def get_credentials() -> Credentials:
     flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
 
     # Try browser flow first; if no display, use console
-    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
-        logger.info("oauth_using_browser_flow")
-        creds = flow.run_local_server(
-            port=0,
-            open_browser=True,
-            success_message="Авторизация успешна! Можете закрыть окно.",
-        )
-    else:
-        logger.info("oauth_using_console_flow")
-        # Ensure redirect_uri is set (required for desktop OAuth)
-        if not flow.redirect_uri:
-            flow.redirect_uri = "http://localhost:8080"
-        auth_url, _ = flow.authorization_url(
-            prompt="consent",
-            access_type="offline",
-        )
-        print("\n" + "=" * 60)
-        print("Google OAuth — откройте ссылку в браузере:")
-        print(auth_url)
-        print("=" * 60)
-        print("После авторизации скопируйте параметр code из адресной строки.")
-        code = input("Введите код авторизации: ").strip()
-        flow.fetch_token(code=code)
-        creds = flow.credentials
+    # Manual OAuth for headless servers.
+    # Get the auth URL (flow handles PKCE internally).
+    logger.info("oauth_manual_flow")
+    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+    print("\n" + "=" * 60)
+    print("ОТКРОЙТЕ ССЫЛКУ В БРАУЗЕРЕ:")
+    print(auth_url)
+    print("=" * 60)
+    print()
+    print("1. Войдите в Google-аккаунт, нажмите \"Разрешить\"")
+    print("2. После редиректа скопируйте ВСЮ адресную строку")
+    print("3. Вставьте её сюда:")
+    redirect_url = input("> ").strip()
+    # Parse code from redirect URL
+    import urllib.parse
+    parsed = urllib.parse.urlparse(redirect_url)
+    params = urllib.parse.parse_qs(parsed.query)
+    code = params.get("code", [None])[0]
+    if not code:
+        # Maybe user pasted just the code
+        code = redirect_url
+    flow.fetch_token(code=code)
+    creds = flow.credentials
 
     _save_token(creds)
     return creds

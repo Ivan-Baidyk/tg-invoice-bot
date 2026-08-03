@@ -23,7 +23,7 @@ from config import settings
 from data.currencies import Currency
 from middleware.security import check_file_safe
 from models.invoice import InvoiceApplication
-from services.bitrix24 import get_accountants
+from services.bitrix24 import create_task, get_accountants
 from services.google_drive import upload_file_async
 from services.google_sheets import append_row_async, get_articles_async
 from validators.fields import (
@@ -119,6 +119,7 @@ async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     context.user_data["employee"] = employee.full_name
     context.user_data["tg_user_id"] = user.id
+    context.user_data["employee_bitrix_id"] = employee.bitrix_id
     context.user_data["entry_date"] = date.today()
     context.user_data["invoice_file_bytes"] = None
     context.user_data["invoice_file_name"] = None
@@ -433,6 +434,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             article=ud["article"],
             comment=ud.get("comment", ""),
             invoice_link=invoice_link,
+            employee_bitrix_id=ud.get("employee_bitrix_id", 0),
         )
         await append_row_async(app.to_sheet_row(invoice_link))
 
@@ -463,6 +465,8 @@ async def _notify_positions(context, app):
     accountants = await get_accountants()
     if not accountants:
         return
+
+    deadline_iso = app.planned_payment_date.strftime("%Y-%m-%d") + "T18:00:00+03:00"
     text = (
         f"<b>🔔 Срочная заявка на оплату (дата сегодня)</b>\n\n"
         f"От: {app.employee}\n"
@@ -470,11 +474,28 @@ async def _notify_positions(context, app):
         f"Сумма: {app.amount} {app.currency_code}\n"
         f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}"
     )
+
     for acc in accountants:
         try:
             await context.bot.send_message(chat_id=acc.telegram_id, text=text, parse_mode=ParseMode.HTML)
         except Exception as e:
             logger.error("urgent_notify_failed %s: %s", acc.full_name, e)
+
+        # Create Bitrix24 task
+        try:
+            await create_task(
+                title=f"Срочная оплата: {app.counterparty} — {app.amount} {app.currency_code}",
+                description=f"Контрагент: {app.counterparty}\n"
+                            f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
+                            f"Статья: {app.article}\n"
+                            f"Сотрудник: {app.employee}\n"
+                            f"Комментарий: {app.comment or '—'}",
+                responsible_id=acc.bitrix_id,
+                created_by=app.employee_bitrix_id,
+                deadline=deadline_iso,
+            )
+        except Exception as e:
+            logger.error("b24_task_failed %s: %s", acc.full_name, e)
 
 
 async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

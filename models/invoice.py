@@ -23,6 +23,7 @@ class InvoiceApplication(BaseModel):
     article: str = Field(min_length=1, max_length=200)
     comment: str = Field(default="", max_length=500)
     invoice_link: str = Field(default="", max_length=500)
+    employee_bitrix_id: int = 0
 
     @classmethod
     def from_validated(
@@ -36,6 +37,7 @@ class InvoiceApplication(BaseModel):
         comment: str = "",
         invoice_link: str = "",
         entry_date: date | None = None,
+        employee_bitrix_id: int = 0,
     ) -> "InvoiceApplication":
         return cls(
             entry_date=entry_date or date.today(),
@@ -65,4 +67,5 @@ class InvoiceApplication(BaseModel):
             STATUS_DEFAULT,
             self.comment,
             invoice_link or "Счёт не приложен",
+            str(self.employee_bitrix_id),
         ]

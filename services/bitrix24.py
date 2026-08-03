@@ -108,3 +108,34 @@ def clear_cache() -> None:
     _cache.by_telegram.clear()
     _cache._loaded = False
     logger.info("b24_cache_cleared")
+
+async def create_task(
+    title: str,
+    description: str,
+    responsible_id: int,
+    created_by: int,
+    deadline: str,
+) -> int | None:
+    """Create a task in Bitrix24. Returns task ID or None."""
+    import httpx
+    url = f"{settings.bitrix24_webhook_url}/tasks.task.add"
+    payload = {
+        "fields": {
+            "TITLE": title,
+            "DESCRIPTION": description,
+            "RESPONSIBLE_ID": responsible_id,
+            "CREATED_BY": created_by,
+            "DEADLINE": deadline,
+        }
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(url, json=payload)
+            r.raise_for_status()
+            data = r.json()
+            task_id = data.get("result", {}).get("task", {}).get("id")
+            logger.info("b24_task_created id=%s title=%s", task_id, title)
+            return task_id
+    except Exception as e:
+        logger.error("b24_task_create_failed: %s", e)
+        return None

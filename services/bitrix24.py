@@ -25,7 +25,7 @@ async def _fetch_all_employees() -> list[Employee]:
     """
     import time
     if _cache._loaded and hasattr(_cache, '_loaded_at'):
-        if time.time() - _cache._loaded_at < 60:
+        if time.time() - _cache._loaded_at < 5:
             return _cache.all_employees
 
     url = f"{settings.bitrix24_webhook_url}/user.get"

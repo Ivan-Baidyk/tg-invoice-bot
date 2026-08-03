@@ -1,16 +1,20 @@
 """Step-by-step input validators used in the ConversationHandler."""
 
 import re
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
+from data.currencies import Currency, get_currency, list_currency_codes
 from models.invoice import Article, DATE_PATTERN, PaymentStatus
 
 MAX_STRING_LENGTH = 500
 
+AMOUNT_CURRENCY_PATTERN = re.compile(
+    r"^\s*([\d\s]+\.?\d*)\s+([A-Za-z]{3})\s*$"
+)
+
 
 def validate_date(text: str) -> date:
-    """Validate DD.MM.YYYY date format. Returns date or raises ValueError."""
     text = text.strip()
     if not DATE_PATTERN.match(text):
         raise ValueError("Дата должна быть в формате ДД.ММ.ГГГГ (например, 25.12.2025)")
@@ -21,61 +25,75 @@ def validate_date(text: str) -> date:
     return d
 
 
-def validate_amount(text: str) -> Decimal:
-    """Validate monetary amount. Returns Decimal or raises ValueError."""
-    text = text.strip().replace(",", ".").replace(" ", "")
+def validate_amount_with_currency(text: str) -> tuple[Decimal, Currency]:
+    """Parse '15000 USD' -> (Decimal('15000'), Currency(USD))."""
+    text = text.strip()
+    match = AMOUNT_CURRENCY_PATTERN.match(text)
+    if not match:
+        raise ValueError(
+            "Укажите сумму и код валюты через пробел.\n"
+            "Пример: <b>15000 RUB</b> или <b>5000.50 USD</b>\n\n"
+            f"Допустимые коды: {list_currency_codes()}"
+        )
+
+    raw_amount = match.group(1).replace(" ", "")
+    raw_currency = match.group(2)
+
+    currency = get_currency(raw_currency)
+    if currency is None:
+        raise ValueError(
+            f"Неизвестный код валюты: <b>{raw_currency.upper()}</b>\n"
+            f"Допустимые коды: {list_currency_codes()}"
+        )
+
     try:
-        amount = Decimal(text)
+        amount = Decimal(raw_amount)
     except InvalidOperation:
-        raise ValueError("Введите корректную сумму (например, 15000 или 15000.50)")
+        raise ValueError("Некорректная сумма. Введите число (например, 15000)")
+
     if amount <= 0:
         raise ValueError("Сумма должна быть больше нуля")
     if amount.as_tuple().exponent < -2:
-        raise ValueError("Сумма не может иметь больше двух знаков после запятой")
-    return amount
+        raise ValueError("Не больше двух знаков после запятой")
+
+    return amount, currency
 
 
 def validate_counterparty(text: str) -> str:
-    """Validate counterparty name."""
     text = text.strip()
     if not text or len(text) < 1:
         raise ValueError("Введите наименование контрагента")
     if len(text) > 200:
-        raise ValueError("Наименование контрагента слишком длинное (макс. 200 символов)")
+        raise ValueError("Слишком длинное наименование (макс. 200)")
     return text
 
 
 def validate_article(text: str) -> Article:
-    """Validate article selection by number or name."""
     text = text.strip()
     articles = list(Article)
-    # Try numeric selection
     try:
         idx = int(text) - 1
         if 0 <= idx < len(articles):
             return articles[idx]
     except ValueError:
         pass
-    # Try name match (case-insensitive, partial)
     for article in articles:
         if article.value.lower() == text.lower():
             return article
     for article in articles:
         if text.lower() in article.value.lower():
             return article
-    raise ValueError("Выберите статью из списка (введите номер или название)")
+    raise ValueError("Выберите статью из списка")
 
 
 def validate_comment(text: str) -> str:
-    """Validate comment field."""
     text = text.strip() if text else ""
     if len(text) > 500:
-        raise ValueError("Комментарий слишком длинный (макс. 500 символов)")
+        raise ValueError("Слишком длинный комментарий (макс. 500)")
     return text
 
 
 def validate_status(text: str) -> PaymentStatus:
-    """Validate payment status."""
     text = text.strip()
     statuses = list(PaymentStatus)
     try:
@@ -91,7 +109,6 @@ def validate_status(text: str) -> PaymentStatus:
 
 
 def build_article_keyboard() -> list[str]:
-    """Build numbered list of articles for display."""
     lines = []
     for i, article in enumerate(Article, 1):
         lines.append(f"{i}. {article.value}")
@@ -100,7 +117,6 @@ def build_article_keyboard() -> list[str]:
 
 
 def build_status_keyboard() -> list[str]:
-    """Build numbered list of statuses for display."""
     lines = []
     for i, status in enumerate(PaymentStatus, 1):
         lines.append(f"{i}. {status.value}")

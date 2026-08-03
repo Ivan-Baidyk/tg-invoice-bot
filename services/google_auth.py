@@ -66,9 +66,15 @@ def get_credentials() -> Credentials:
 
     # Try browser flow first; if no display, use console
     # Manual OAuth for headless servers.
-    # Get the auth URL (flow handles PKCE internally).
     logger.info("oauth_manual_flow")
-    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+    flow.redirect_uri = "http://localhost"
+    auth_url, _ = flow.authorization_url(
+        prompt="consent",
+        access_type="offline",
+    )
+    # Force redirect_uri — sometimes not auto-included
+    if "redirect_uri" not in auth_url:
+        auth_url += "&redirect_uri=" + urllib.parse.quote(flow.redirect_uri, safe="")
     print("\n" + "=" * 60)
     print("ОТКРОЙТЕ ССЫЛКУ В БРАУЗЕРЕ:")
     print(auth_url)

@@ -1,40 +1,41 @@
 #!/usr/bin/env python3
-"""Интерактивный мастер установки Invoice Bot.
-
-Последовательно запрашивает все параметры и генерирует .env.
-Автоматически сохраняет credentials.json для Google.
-"""
+"""Интерактивный мастер установки Invoice Bot — пошаговая настройка."""
 
 import json
 import os
 import sys
 from pathlib import Path
 
-BOLD = "\033[1m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
 RED = "\033[31m"
 RESET = "\033[0m"
 
+_step = 0
+
+
+def step(title: str) -> None:
+    global _step
+    _step += 1
+    print()
+    print(f"{GREEN}Шаг {_step}: {title}{RESET}")
+    print("-" * 40)
+
 
 def ask(label: str, default: str = "") -> str:
-    """Задать вопрос с опциональным значением по умолчанию."""
     if default:
-        prompt = f"{label} [{default}]: "
-    else:
-        prompt = f"{label}: "
-    return input(prompt).strip() or default
+        return input(f"  {label} [{default}]: ").strip() or default
+    return input(f"  {label}: ").strip()
 
 
 def ask_multiline(label: str) -> str:
-    """Считать многострочный ввод (до строки END)."""
-    print(label)
-    print("(введите END на отдельной строке чтобы закончить):")
+    print(f"  {label}")
+    print("  (введите END на отдельной строке чтобы закончить):")
     lines = []
     while True:
         try:
-            line = input()
+            line = input("  > ")
         except EOFError:
             break
         if line.strip().upper() == "END":
@@ -43,86 +44,87 @@ def ask_multiline(label: str) -> str:
     return "\n".join(lines)
 
 
-def section(title: str) -> None:
-    print()
-    print(f"{CYAN}─── {title} ───{RESET}")
-    print()
-
-
 def main() -> None:
     print()
-    print(f"{GREEN}{'=' * 60}{RESET}")
+    print(f"{GREEN}{'=' * 50}{RESET}")
     print(f"{GREEN}  Invoice Bot — Мастер установки{RESET}")
-    print(f"{GREEN}{'=' * 60}{RESET}")
-    print()
+    print(f"{GREEN}{'=' * 50}{RESET}")
 
-    # ── 1. Telegram ──
-    section("1. Telegram")
-    bot_token = ask("Токен бота (от @BotFather)")
+    # ── Шаг 1: Токен бота ──
+    step("Токен Telegram-бота")
+    bot_token = ask("Токен бота (получить у @BotFather)")
     if not bot_token:
-        print(f"{RED}❌ Токен бота обязателен. Выход.{RESET}")
+        print(f"\n{RED}❌ Токен бота обязателен. Установка прервана.{RESET}")
         sys.exit(1)
+    print(f"{GREEN}  ✓ Токен сохранён{RESET}")
 
-    print()
-    chat_id = ask(
-        "ID группового чата для дублирования заявок\n"
-        "  (0 — не дублировать, бот работает только в личных сообщениях)",
-        "0",
-    )
+    # ── Шаг 2: ID группы ──
+    step("ID группового чата")
+    print(f"  {CYAN}Бот будет дублировать все заявки в указанный чат.{RESET}")
+    print(f"  {CYAN}Укажите 0, если дублирование не нужно.{RESET}")
+    chat_id = ask("ID группового чата", "0")
+    print(f"{GREEN}  ✓ Сохранено{RESET}")
 
-    # ── 2. Bitrix24 ──
-    section("2. Битрикс24")
-    print("  Бот проверяет доступ через активных сотрудников Битрикс24.")
-    print("  У каждого сотрудника должно быть заполнено кастомное поле с Telegram ID.")
-    print()
-
+    # ── Шаг 3: Bitrix24 webhook ──
+    step("Webhook URL Битрикс24")
+    print(f"  {CYAN}Бот проверяет доступ через активных сотрудников Битрикс24.{RESET}")
+    print(f"  {CYAN}У каждого сотрудника должно быть заполнено поле с Telegram ID.{RESET}")
     b24_url = ask(
         "Webhook URL для REST API\n"
-        "  (пример: https://b24-xxx.bitrix24.ru/rest/1/xxxxxxxxxxxxxx)"
+        "  (пример: https://b24-xxx.bitrix24.ru/rest/1/token)"
     )
 
+    # ── Шаг 4: Поле Telegram ID ──
+    step("ID поля с Telegram ID")
+    print(f"  {CYAN}Кастомное поле пользователя в Битрикс24, где хранится Telegram ID.{RESET}")
+    print(f"  {CYAN}Поле должно быть скрыто от пользователя, заполняется администратором.{RESET}")
     b24_tg_field = ask(
-        "ID кастомного поля пользователя с Telegram ID\n"
+        "ID кастомного поля\n"
         "  (пример: UF_USR_1785740541166)"
     )
 
+    # ── Шаг 5: Поле с должностью ──
+    step("ID поля с должностью")
     b24_pos_field = ask(
         "ID кастомного поля пользователя с должностью\n"
         "  (пример: UF_USR_XXXXXXXXXX)"
     )
 
+    # ── Шаг 6: Должности для уведомлений ──
+    step("Должности для уведомлений")
+    print(f"  {CYAN}Сотрудники с этими должностями будут получать уведомления{RESET}")
+    print(f"  {CYAN}о срочных заявках и задачи в Битрикс24.{RESET}")
     positions = ask(
-        "Должности для уведомлений о срочных заявках (через запятую)\n"
-        "  (сотрудники с этими должностями получат уведомления и задачи)",
+        "Должности через запятую",
         "Бухгалтер",
     )
 
-    # ── 3. Google Таблицы и Диск ──
-    section("3. Google Таблицы и Диск")
-    print("  Сервисный аккаунт Google Cloud должен иметь доступ к таблице и папке.")
-    print()
-
+    # ── Шаг 7: Google Таблица ──
+    step("Google Таблица")
+    print(f"  {CYAN}Сервисный аккаунт Google Cloud должен иметь доступ к таблице.{RESET}")
     sheet_id = ask(
         "ID Google Таблицы\n"
         "  (из URL: docs.google.com/spreadsheets/d/<ID>/edit)"
     )
     if not sheet_id:
-        print(f"{RED}❌ ID Google Таблицы обязателен. Выход.{RESET}")
+        print(f"\n{RED}❌ ID таблицы обязателен. Установка прервана.{RESET}")
         sys.exit(1)
+    print(f"{GREEN}  ✓ Сохранено{RESET}")
 
+    # ── Шаг 8: Google Drive ──
+    step("Папка Google Drive")
     drive_id = ask(
         "ID папки Google Drive для хранения счетов\n"
         "  (из URL: drive.google.com/drive/folders/<ID>)"
     )
+    print(f"{GREEN}  ✓ Сохранено{RESET}")
 
-    # ── 4. Google credentials ──
-    section("4. Ключ сервисного аккаунта Google")
-    print("  Скачайте JSON-ключ в Google Cloud Console:")
-    print("  APIs & Services → Credentials → Service Account → Keys → JSON")
-    print()
-
+    # ── Шаг 9: Ключ Google ──
+    step("Ключ сервисного аккаунта Google")
+    print(f"  {CYAN}Скачайте JSON-ключ в Google Cloud Console:{RESET}")
+    print(f"  {CYAN}APIs & Services → Credentials → Service Account → Keys → JSON{RESET}")
     creds_raw = ask_multiline(
-        "Вставьте содержимое JSON-файла сервисного аккаунта (credentials.json)"
+        "Вставьте содержимое JSON-файла"
     )
 
     if creds_raw:
@@ -131,27 +133,22 @@ def main() -> None:
             with open("credentials.json", "w", encoding="utf-8") as f:
                 json.dump(creds_data, f, indent=2, ensure_ascii=False)
             os.chmod("credentials.json", 0o600)
-            print(f"{GREEN}✅ credentials.json сохранён{RESET}")
+            print(f"{GREEN}  ✓ credentials.json сохранён{RESET}")
         except json.JSONDecodeError:
-            print(f"{RED}❌ Ошибка: некорректный JSON. Сохраните credentials.json вручную.{RESET}")
+            print(f"{RED}  ❌ Ошибка JSON. Сохраните файл вручную.{RESET}")
     else:
-        print(f"{YELLOW}⚠️  credentials.json не заполнен. Сохраните его вручную.{RESET}")
+        print(f"{YELLOW}  ⚠️  Пропущено. Сохраните credentials.json вручную.{RESET}")
 
-    # ── 5. Прокси (опционально) ──
-    section("5. Прокси (опционально)")
-    proxy = ask(
-        "URL прокси-сервера для Telegram API\n"
-        "  (оставьте пустым, если сервер за пределами РФ)",
-        "",
-    )
+    # ── Шаг 10: Прокси ──
+    step("Прокси (опционально)")
+    print(f"  {CYAN}Если сервер находится в РФ, Telegram API может быть заблокирован.{RESET}")
+    print(f"  {CYAN}Укажите URL прокси. На зарубежном сервере оставьте пустым.{RESET}")
+    proxy = ask("URL прокси-сервера", "")
 
-    # ── 6. Логирование (опционально) ──
-    section("6. Grafana Loki (опционально)")
-    loki_url = ask(
-        "URL Loki для отправки логов\n"
-        "  (оставьте пустым, если не используете Grafana)",
-        "",
-    )
+    # ── Шаг 11: Логирование ──
+    step("Grafana Loki (опционально)")
+    print(f"  {CYAN}Логи бота можно отправлять в Grafana Loki для мониторинга.{RESET}")
+    loki_url = ask("URL Loki", "")
 
     # ── Сборка .env ──
     pos_list = ",".join(f'"{p.strip()}"' for p in positions.split(",") if p.strip())
@@ -184,23 +181,24 @@ LOKI_URL={loki_url}
     if env_path.exists():
         backup = env_path.with_suffix(".env.backup")
         env_path.rename(backup)
-        print(f"\n{YELLOW}⚠️  Старый .env сохранён как {backup}{RESET}")
+        print(f"\n{YELLOW}  ⚠️  Старый .env сохранён как {backup}{RESET}")
 
     env_path.write_text(env_content, encoding="utf-8")
     os.chmod(env_path, 0o600)
 
     print()
-    print(f"{GREEN}{'=' * 60}{RESET}")
-    print(f"{GREEN}  ✅ Настройка завершена!{RESET}")
-    print(f"{GREEN}{'=' * 60}{RESET}")
+    print(f"{GREEN}{'=' * 50}{RESET}")
+    print(f"{GREEN}  ✅ Установка завершена!{RESET}")
+    print(f"{GREEN}{'=' * 50}{RESET}")
     print()
-    print(f"  • Конфигурация:  {BOLD}.env{RESET}")
+    print(f"  Созданы файлы:")
+    print(f"    • .env — конфигурация бота")
     if creds_raw:
-        print(f"  • Google ключ:   {BOLD}credentials.json{RESET}")
+        print(f"    • credentials.json — ключ Google")
     print()
     print(f"  Для запуска:")
-    print(f"    {BOLD}uv sync{RESET}")
-    print(f"    {BOLD}uv run python bot.py{RESET}")
+    print(f"    uv sync")
+    print(f"    uv run python bot.py")
     print()
 
 

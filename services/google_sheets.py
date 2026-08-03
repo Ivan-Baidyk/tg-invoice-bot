@@ -35,7 +35,7 @@ def append_row(row_data: list[str]) -> str:
         )
 
         updated_range = result.get("updates", {}).get("updatedRange", "unknown")
-        logger.info("sheet_row_appended", range=updated_range)
+        logger.info("sheet_row_appended range=%s", updated_range)
         return updated_range
 
     except HttpError as e:

@@ -51,31 +51,35 @@ async def append_row_async(row_data: list[str]) -> str:
 
 
 
-def get_articles() -> list[str]:
-    """Read article list from sheet by gid (always fresh)."""
-    try:
-        creds = get_credentials()
-        service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+# Cache sheet name for gid 1004180925 (articles sheet)
+_articles_sheet_name: str = ""
 
-        # Get spreadsheet metadata to find sheet names
+def _get_articles_sheet_name(service) -> str:
+    global _articles_sheet_name
+    import time
+    if _articles_sheet_name:
+        return _articles_sheet_name
+    try:
         meta = service.spreadsheets().get(
             spreadsheetId=settings.google_sheet_id,
             fields="sheets.properties",
         ).execute()
-
-        # Find sheet by gid=1004180925 (Справчник)
-        ARTICLE_SHEET_GID = 1004180925
-        sheet_name = None
         for s in meta.get("sheets", []):
             props = s.get("properties", {})
-            if props.get("sheetId") == ARTICLE_SHEET_GID:
-                sheet_name = props.get("title", "")
+            if props.get("sheetId") == 1004180925:
+                _articles_sheet_name = props.get("title", "")
                 break
+    except Exception:
+        _articles_sheet_name = "Справочник"  # fallback
+    return _articles_sheet_name or "Справочник"
 
-        if not sheet_name:
-            logger.error("articles_sheet_not_found gid=%d", ARTICLE_SHEET_GID)
-            return []
 
+def get_articles() -> list[str]:
+    """Read article list from sheet (single API call)."""
+    try:
+        creds = get_credentials()
+        service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        sheet_name = _get_articles_sheet_name(service)
         result = (
             service.spreadsheets()
             .values()
@@ -87,7 +91,7 @@ def get_articles() -> list[str]:
         )
         rows = result.get("values", [])
         result_list = [r[0].strip() for r in rows if r and r[0].strip()]
-        logger.info("articles_loaded sheet=%s count=%d", sheet_name, len(result_list))
+        logger.info("articles_loaded count=%d", len(result_list))
         return result_list
     except Exception as e:
         logger.error("articles_load_failed: %s", e)

@@ -407,7 +407,11 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     ud = context.user_data
     await query.edit_message_text("⏳ Сохраняю заявку...")
 
-    invoice_id = await get_next_invoice_id_async()
+    # Parallel: fetch articles (for notification) + invoice ID
+    invoice_id, _ = await asyncio.gather(
+        get_next_invoice_id_async(),
+        get_articles_async(),
+    )
     invoice_link = ""
     try:
         if ud.get("invoice_file_bytes"):

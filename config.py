@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # Bitrix24
     bitrix24_webhook_url: str = ""
     bitrix24_telegram_field_id: str = ""
+    bitrix24_position_field_id: str = ""  # Кастомное UF-поле с должностью
     urgent_notify_positions: list[str] = []  # Должности для срочных уведомлений
 
     # Google

@@ -53,7 +53,7 @@ async def _fetch_all_employees() -> list[Employee]:
                 last_name=user.get("LAST_NAME", ""),
                 first_name=user.get("NAME", ""),
                 second_name=user.get("SECOND_NAME", ""),
-                position=user.get("WORK_POSITION", ""),
+            position=user.get(settings.bitrix24_position_field_id, "") or user.get("WORK_POSITION", ""),
                 telegram_id=tg_id,
             )
             employees.append(emp)

@@ -99,6 +99,11 @@ async def main() -> None:
     logger.info("bot_polling_start")
     await application.initialize()
     await application.start()
+
+    # Preload Bitrix24 employee cache
+    from services.bitrix24 import _fetch_all_employees
+    await _fetch_all_employees()
+    logger.info("b24_cache_preloaded")
     await application.updater.start_polling(drop_pending_updates=False, poll_interval=0.5, timeout=timedelta(seconds=2))
     logger.info("bot_running")
 

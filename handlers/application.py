@@ -412,9 +412,13 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     invoice_link = ""
     try:
         if ud.get("invoice_file_bytes"):
+            import os
+            orig = ud.get("invoice_file_name", "invoice.pdf")
+            ext = os.path.splitext(orig)[1] or ".pdf"
+            safe_name = f"Счет_#{invoice_id}{ext}"
             file_id, web_link = await upload_file_async(
                 file_data=ud["invoice_file_bytes"],
-                file_name=ud.get("invoice_file_name", "invoice.pdf"),
+                file_name=safe_name,
                 mime_type=ud.get("invoice_mime_type", "application/pdf"),
             )
             invoice_link = web_link

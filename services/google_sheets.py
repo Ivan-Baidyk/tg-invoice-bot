@@ -56,7 +56,7 @@ _articles_ts: float = 0
 
 
 def get_articles() -> list[str]:
-    """Read article list from Справочник!A:A column."""
+    """Read article list from 'Справочник' sheet column A."""
     global _articles_cache, _articles_ts
     import time
     now = time.time()
@@ -66,19 +66,38 @@ def get_articles() -> list[str]:
     try:
         creds = get_credentials()
         service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+
+        # Get spreadsheet metadata to find sheet names
+        meta = service.spreadsheets().get(
+            spreadsheetId=settings.google_sheet_id,
+            fields="sheets.properties",
+        ).execute()
+
+        # Find sheet with matching title (case-insensitive)
+        sheet_name = None
+        for s in meta.get("sheets", []):
+            title = s.get("properties", {}).get("title", "")
+            if "справочник" in title.lower():
+                sheet_name = title
+                break
+
+        if not sheet_name:
+            logger.error("articles_sheet_not_found")
+            return _articles_cache or []
+
         result = (
             service.spreadsheets()
             .values()
             .get(
                 spreadsheetId=settings.google_sheet_id,
-                range="Справочник!A:A",
+                range=f"'{sheet_name}'!A:A",
             )
             .execute()
         )
         rows = result.get("values", [])
         _articles_cache = [r[0].strip() for r in rows if r and r[0].strip()]
         _articles_ts = now
-        logger.info("articles_loaded count=%d", len(_articles_cache))
+        logger.info("articles_loaded sheet=%s count=%d", sheet_name, len(_articles_cache))
     except Exception as e:
         logger.error("articles_load_failed: %s", e)
 

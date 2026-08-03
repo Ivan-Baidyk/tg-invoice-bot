@@ -1,13 +1,11 @@
-"""Step-by-step input validators used in the ConversationHandler."""
+"""Валидаторы полей заявки."""
 
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from data.currencies import Currency, get_currency, list_currency_codes
-from models.invoice import Article, DATE_PATTERN, PaymentStatus
-
-MAX_STRING_LENGTH = 500
+from models.invoice import Article, DATE_PATTERN
 
 AMOUNT_CURRENCY_PATTERN = re.compile(
     r"^\s*([\d\s]+\.?\d*)\s+([A-Za-z]{3})\s*$"
@@ -26,7 +24,6 @@ def validate_date(text: str) -> date:
 
 
 def validate_amount_with_currency(text: str) -> tuple[Decimal, Currency]:
-    """Parse '15000 USD' -> (Decimal('15000'), Currency(USD))."""
     text = text.strip()
     match = AMOUNT_CURRENCY_PATTERN.match(text)
     if not match:
@@ -61,10 +58,10 @@ def validate_amount_with_currency(text: str) -> tuple[Decimal, Currency]:
 
 def validate_counterparty(text: str) -> str:
     text = text.strip()
-    if not text or len(text) < 1:
+    if not text:
         raise ValueError("Введите наименование контрагента")
     if len(text) > 200:
-        raise ValueError("Слишком длинное наименование (макс. 200)")
+        raise ValueError("Слишком длинное наименование (макс. 200 символов)")
     return text
 
 
@@ -77,48 +74,25 @@ def validate_article(text: str) -> Article:
             return articles[idx]
     except ValueError:
         pass
-    for article in articles:
-        if article.value.lower() == text.lower():
-            return article
-    for article in articles:
-        if text.lower() in article.value.lower():
-            return article
-    raise ValueError("Выберите статью из списка")
+    for a in articles:
+        if a.value.lower() == text.lower():
+            return a
+    for a in articles:
+        if text.lower() in a.value.lower():
+            return a
+    raise ValueError("Выберите статью из списка (введите номер или название)")
 
 
 def validate_comment(text: str) -> str:
     text = text.strip() if text else ""
     if len(text) > 500:
-        raise ValueError("Слишком длинный комментарий (макс. 500)")
+        raise ValueError("Слишком длинный комментарий (макс. 500 символов)")
     return text
-
-
-def validate_status(text: str) -> PaymentStatus:
-    text = text.strip()
-    statuses = list(PaymentStatus)
-    try:
-        idx = int(text) - 1
-        if 0 <= idx < len(statuses):
-            return statuses[idx]
-    except ValueError:
-        pass
-    for status in statuses:
-        if status.value.lower() == text.lower():
-            return status
-    raise ValueError("Выберите статус из списка")
 
 
 def build_article_keyboard() -> list[str]:
     lines = []
-    for i, article in enumerate(Article, 1):
-        lines.append(f"{i}. {article.value}")
+    for i, a in enumerate(Article, 1):
+        lines.append(f"{i}. {a.value}")
     lines.append("Введите номер или название статьи:")
-    return lines
-
-
-def build_status_keyboard() -> list[str]:
-    lines = []
-    for i, status in enumerate(PaymentStatus, 1):
-        lines.append(f"{i}. {status.value}")
-    lines.append("Введите номер или название статуса:")
     return lines

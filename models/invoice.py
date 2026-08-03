@@ -1,22 +1,17 @@
-"""Pydantic models for invoice application data with validation."""
+"""Pydantic models for invoice application data."""
 
 import re
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from data.currencies import Currency
 
 DATE_PATTERN = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
 
-
-class PaymentStatus(StrEnum):
-    """Real sheet values: Новый, Оплачено, Отклонено."""
-    NEW = "Новый"
-    PAID = "Оплачено"
-    REJECTED = "Отклонено"
+STATUS_DEFAULT = "Новый"
 
 
 class Article(StrEnum):
@@ -33,8 +28,6 @@ class Article(StrEnum):
 
 
 class InvoiceApplication(BaseModel):
-    """Full invoice payment application."""
-
     entry_date: date = Field(default_factory=date.today)
     planned_payment_date: date
     employee: str = Field(min_length=1, max_length=100)
@@ -43,11 +36,8 @@ class InvoiceApplication(BaseModel):
     currency_code: str = Field(default="RUB", min_length=3, max_length=3)
     currency_name: str = Field(default="Российский рубль")
     article: Article
-    payment_status: PaymentStatus = PaymentStatus.NEW
     comment: str = Field(default="", max_length=500)
-    invoice_file_id: str | None = None
     invoice_link: str = Field(default="", max_length=500)
-    is_urgent: bool = False
 
     @classmethod
     def from_validated(
@@ -58,7 +48,6 @@ class InvoiceApplication(BaseModel):
         amount: Decimal,
         currency: Currency,
         article: Article,
-        payment_status: PaymentStatus,
         comment: str = "",
         invoice_link: str = "",
         entry_date: date | None = None,
@@ -72,7 +61,6 @@ class InvoiceApplication(BaseModel):
             currency_code=currency.code,
             currency_name=currency.name_ru,
             article=article,
-            payment_status=payment_status,
             comment=comment,
             invoice_link=invoice_link,
         )
@@ -82,7 +70,7 @@ class InvoiceApplication(BaseModel):
         return f"{self.amount} {self.currency_code} ({self.currency_name})"
 
     def to_sheet_row(self, invoice_link: str = "") -> list[str]:
-        """9 columns: Дата внесения | Плановая дата | Сотрудник | Контрагент | Сумма | Статья | Статус | Комментарий | Ссылка"""
+        """9 columns: A-Дата внесения | B-Плановая дата | C-Сотрудник | D-Контрагент | E-Сумма | F-Статья | G-Статус | H-Комментарий | I-Ссылка"""
         return [
             self.entry_date.strftime("%d.%m.%Y"),
             self.planned_payment_date.strftime("%d.%m.%Y"),
@@ -90,7 +78,7 @@ class InvoiceApplication(BaseModel):
             self.counterparty,
             f"{self.amount} {self.currency_code}",
             self.article.value,
-            self.payment_status.value,
+            STATUS_DEFAULT,
             self.comment,
             invoice_link or "Счёт не приложен",
         ]

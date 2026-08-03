@@ -73,7 +73,14 @@ def get_credentials() -> Credentials:
         )
     else:
         logger.info("oauth_using_console_flow")
-        creds = flow.run_console()
+        auth_url, _ = flow.authorization_url(prompt="consent")
+        print("\n" + "=" * 60)
+        print("Google OAuth — откройте ссылку в браузере:")
+        print(auth_url)
+        print("=" * 60)
+        code = input("Введите код авторизации: ").strip()
+        flow.fetch_token(code=code)
+        creds = flow.credentials
 
     _save_token(creds)
     return creds

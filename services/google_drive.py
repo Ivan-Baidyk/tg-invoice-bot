@@ -52,7 +52,7 @@ def upload_file(
         return file_id, web_link
 
     except HttpError as e:
-        logger.error("google_drive_error", error=str(e))
+        logger.error("google_drive_error: %s", e)
         raise
 
 

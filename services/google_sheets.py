@@ -39,7 +39,7 @@ def append_row(row_data: list[str]) -> str:
         return updated_range
 
     except HttpError as e:
-        logger.error("google_sheets_error", error=str(e))
+        logger.error("google_sheets_error: %s", e)
         raise
 
 

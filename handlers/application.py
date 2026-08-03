@@ -372,7 +372,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         else:
             invoice_link = "Счёт не приложен"
     except Exception as e:
-        logger.error("drive_upload_failed", error=str(e))
+        logger.error("drive_upload_failed: %s", e)
 
     try:
         app = InvoiceApplication.from_validated(
@@ -404,7 +404,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             await _notify_positions(context, app)
 
     except Exception as e:
-        logger.error("sheet_write_failed", error=str(e))
+        logger.error("sheet_write_failed: %s", e)
         await query.message.reply_text("❌ Ошибка при сохранении заявки. Попробуйте позже.")
         return ConversationHandler.END
 
@@ -431,7 +431,7 @@ async def _notify_positions(context, app):
         try:
             await context.bot.send_message(chat_id=acc.telegram_id, text=text, parse_mode=ParseMode.HTML)
         except Exception as e:
-            logger.error("urgent_notify_failed", accountant=acc.full_name, error=str(e))
+            logger.error("urgent_notify_failed accountant=%s: %s", acc.full_name, e)
 
 
 async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

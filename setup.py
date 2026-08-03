@@ -24,6 +24,7 @@ def step(title: str) -> None:
 
 
 def ask(label: str, default: str = "") -> str:
+    sys.stdout.flush()
     if default:
         return input(f"  {label} [{default}]: ").strip() or default
     return input(f"  {label}: ").strip()
@@ -52,10 +53,15 @@ def main() -> None:
 
     # ── Шаг 1: Токен бота ──
     step("Токен Telegram-бота")
-    bot_token = ask("Токен бота (получить у @BotFather)")
-    if not bot_token:
-        print(f"\n{RED}❌ Токен бота обязателен. Установка прервана.{RESET}")
-        sys.exit(1)
+    while True:
+        bot_token = ask("Токен бота (получить у @BotFather)")
+        if not bot_token:
+            print(f"{RED}  ❌ Токен не может быть пустым. Попробуйте ещё раз.{RESET}")
+            continue
+        if len(bot_token) < 20:
+            print(f"{RED}  ❌ Токен слишком короткий. Проверьте и попробуйте ещё раз.{RESET}")
+            continue
+        break
     print(f"{GREEN}  ✓ Токен сохранён{RESET}")
 
     # ── Шаг 2: ID группы ──

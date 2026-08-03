@@ -76,16 +76,8 @@ async def _fetch_all_employees() -> list[Employee]:
 
 
 async def get_employee_by_telegram(tg_user_id: int) -> Employee | None:
-    """Look up an employee by Telegram user_id.
-
-    The UF field value from Bitrix24 is a string like "7106724608".
-    """
-    if tg_user_id in _cache.by_telegram:
-        return _cache.by_telegram[tg_user_id]
-
-    # First load: fetch all employees
+    """Look up an employee by Telegram user_id (always fresh)."""
     await _fetch_all_employees()
-
     return _cache.by_telegram.get(tg_user_id)
 
 

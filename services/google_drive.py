@@ -20,23 +20,24 @@ def upload_file(
 ) -> tuple[str, str]:
     """Upload a file to Google Drive. Returns (file_id, web_view_link).
 
-    The file is uploaded to the designated folder with restricted access.
+    Tries the configured folder first; falls back to root if 404.
     """
+    creds = get_credentials()
+    service = build("drive", "v3", credentials=creds, cache_discovery=False)
+
+    file_metadata: dict = {"name": file_name}
+
+    # Try with parent folder
+    if settings.google_drive_folder_id:
+        file_metadata["parents"] = [settings.google_drive_folder_id]
+
+    media = MediaIoBaseUpload(
+        io.BytesIO(file_data),
+        mimetype=mime_type,
+        resumable=False,
+    )
+
     try:
-        creds = get_credentials()
-        service = build("drive", "v3", credentials=creds, cache_discovery=False)
-
-        file_metadata = {
-            "name": file_name,
-            "parents": [settings.google_drive_folder_id],
-        }
-
-        media = MediaIoBaseUpload(
-            io.BytesIO(file_data),
-            mimetype=mime_type,
-            resumable=False,
-        )
-
         drive_file = (
             service.files()
             .create(
@@ -47,18 +48,30 @@ def upload_file(
             )
             .execute()
         )
-
-        file_id = drive_file.get("id")
-        web_link = drive_file.get("webViewLink", "")
-
-        _restrict_permissions(service, file_id)
-
-        logger.info("drive_file_uploaded id=%s name=%s", file_id, file_name)
-        return file_id, web_link
-
     except HttpError as e:
-        logger.error("google_drive_error: %s", e)
-        raise
+        if "404" in str(e) and "parents" in file_metadata:
+            # Folder not accessible — retry without parent
+            logger.warning("drive_folder_404 retrying without parent")
+            del file_metadata["parents"]
+            drive_file = (
+                service.files()
+                .create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id, webViewLink",
+                )
+                .execute()
+            )
+        else:
+            raise
+
+    file_id = drive_file.get("id")
+    web_link = drive_file.get("webViewLink", "")
+
+    _restrict_permissions(service, file_id)
+
+    logger.info("drive_file_uploaded id=%s name=%s", file_id, file_name)
+    return file_id, web_link
 
 
 def _restrict_permissions(service, file_id: str) -> None:

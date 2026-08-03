@@ -133,7 +133,9 @@ def get_next_invoice_id() -> int:
                 max_id = max(max_id, int(r[0]))
             except (ValueError, IndexError):
                 pass
-        return max_id + 1
+        next_id = max_id + 1
+        logger.info("next_invoice_id max=%d next=%d rows=%d", max_id, next_id, len(rows))
+        return next_id
     except Exception as e:
         logger.error("get_next_id_failed: %s", e)
         return 0

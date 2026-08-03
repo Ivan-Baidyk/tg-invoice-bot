@@ -72,7 +72,7 @@ async def _fetch_all_employees() -> list[Employee]:
         return employees
 
     except httpx.HTTPError as e:
-        logger.error("b24_api_error", error=str(e))
+        logger.error("b24_api_error: %s", e)
         return []
 
 

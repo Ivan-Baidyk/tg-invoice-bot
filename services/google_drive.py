@@ -48,7 +48,7 @@ def upload_file(
 
         _restrict_permissions(service, file_id)
 
-        logger.info("drive_file_uploaded", file_id=file_id, name=file_name)
+        logger.info("drive_file_uploaded id=%s name=%s", file_id, file_name)
         return file_id, web_link
 
     except HttpError as e:
@@ -65,9 +65,9 @@ def _restrict_permissions(service, file_id: str) -> None:
             role = perm.get("role")
             if role != "owner" and perm_id:
                 service.permissions().delete(fileId=file_id, permissionId=perm_id).execute()
-                logger.info("permission_removed", file_id=file_id, perm_id=perm_id)
+                logger.info("permission_removed file=%s perm=%s", file_id, perm_id)
     except HttpError as e:
-        logger.warning("permission_restrict_warning", error=str(e))
+        logger.warning("permission_restrict_warning: %s", e)
 
 
 async def upload_file_async(

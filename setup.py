@@ -44,7 +44,9 @@ def ask_multiline(label: str) -> str:
 
 
 def section(title: str) -> None:
-    print(f"\n{CYAN}─── {title} ───{RESET}")
+    print()
+    print(f"{CYAN}─── {title} ───{RESET}")
+    print()
 
 
 def main() -> None:
@@ -61,6 +63,7 @@ def main() -> None:
         print(f"{RED}❌ Токен бота обязателен. Выход.{RESET}")
         sys.exit(1)
 
+    print()
     chat_id = ask(
         "ID группового чата для дублирования заявок\n"
         "  (0 — не дублировать, бот работает только в личных сообщениях)",

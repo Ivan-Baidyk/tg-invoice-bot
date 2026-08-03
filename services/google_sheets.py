@@ -74,7 +74,7 @@ def get_articles() -> list[str]:
 
         if not sheet_name:
             logger.error("articles_sheet_not_found gid=%d", ARTICLE_SHEET_GID)
-            return _articles_cache or []
+            return []
 
         result = (
             service.spreadsheets()

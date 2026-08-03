@@ -54,10 +54,8 @@ SKIP_KEYBOARD = InlineKeyboardMarkup([
 
 
 async def _load_articles(context: ContextTypes.DEFAULT_TYPE) -> list[str]:
-    """Load articles from cache or fetch from Google Sheets."""
-    if "cached_articles" not in context.bot_data:
-        context.bot_data["cached_articles"] = await get_articles_async()
-    return context.bot_data["cached_articles"]
+    """Load articles from Google Sheets (always fresh)."""
+    return await get_articles_async()
 
 
 # ---------------------------------------------------------------------------

@@ -73,11 +73,18 @@ def get_credentials() -> Credentials:
         )
     else:
         logger.info("oauth_using_console_flow")
-        auth_url, _ = flow.authorization_url(prompt="consent")
+        # Include redirect_uri — required for desktop OAuth
+        auth_url, _ = flow.authorization_url(
+            prompt="consent",
+            access_type="offline",
+            redirect_uri=flow.redirect_uri or "http://localhost:8080",
+        )
         print("\n" + "=" * 60)
         print("Google OAuth — откройте ссылку в браузере:")
         print(auth_url)
         print("=" * 60)
+        print("После авторизации вы будете перенаправлены на локальный адрес.")
+        print("Скопируйте параметр code из адресной строки браузера.")
         code = input("Введите код авторизации: ").strip()
         flow.fetch_token(code=code)
         creds = flow.credentials

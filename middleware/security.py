@@ -1,16 +1,23 @@
-"""Security middleware: user authentication, chat restriction, file safety."""
+"""Security middleware: Bitrix24-based authentication, chat restriction, file safety.
+
+Authentication flow:
+  1. Extract Telegram user_id from update (immutable, server-verified)
+  2. Look up user in Bitrix24 corporate directory via custom UF field
+  3. If found → allow, store Employee object in context.user_data
+  4. If not found → deny with clear error message
+  5. If Bitrix24 unavailable → fall back to allowed_user_ids whitelist
+"""
 
 import logging
-from typing import Awaitable, Callable
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from config import settings
+from services.bitrix24 import get_employee_by_telegram
 
 logger = logging.getLogger(__name__)
 
-# Allowed MIME types for invoice files
 ALLOWED_MIME_TYPES = {
     "application/pdf",
     "image/jpeg",
@@ -22,23 +29,7 @@ ALLOWED_MIME_TYPES = {
 }
 
 
-def check_user_allowed(update: Update) -> bool:
-    """Check if the user is in the allowed list.
-
-    Telegram user_id is immutable and verified by Telegram servers,
-    making user impersonation impossible at the transport level.
-    """
-    user = update.effective_user
-    if user is None:
-        return False
-    return user.id in settings.allowed_user_ids
-
-
 def check_chat_allowed(update: Update) -> bool:
-    """Ensure the bot only responds in the designated group chat.
-
-    This prevents the bot from being used in unauthorized chats.
-    """
     chat = update.effective_chat
     if chat is None:
         return False
@@ -46,7 +37,6 @@ def check_chat_allowed(update: Update) -> bool:
 
 
 def check_file_safe(file_size: int, mime_type: str | None) -> bool:
-    """Validate file size and type for invoice uploads."""
     max_bytes = settings.max_invoice_file_size_mb * 1024 * 1024
     if file_size > max_bytes:
         return False
@@ -55,48 +45,53 @@ def check_file_safe(file_size: int, mime_type: str | None) -> bool:
     return True
 
 
+async def authenticate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Authenticate user against Bitrix24 corporate directory."""
+    user = update.effective_user
+    if user is None:
+        return False
+
+    tg_id = user.id
+
+    if "employee_obj" in context.user_data:
+        return True
+
+    if settings.bitrix24_webhook_url and settings.bitrix24_telegram_field_id:
+        employee = await get_employee_by_telegram(tg_id)
+        if employee:
+            context.user_data["employee_obj"] = employee
+            return True
+
+    if tg_id in settings.allowed_user_ids:
+        logger.warning("b24_unavailable_fallback", tg_user_id=tg_id)
+        return True
+
+    return False
+
+
 async def security_middleware(
     update: object,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> object | None:
-    """Middleware that enforces access control on every update.
-
-    Installed as the first middleware in the Application.
-    - Rejects updates from unauthorized users
-    - Rejects updates from unauthorized chats
-    - Provides clear error messages to the user
-    """
     if not isinstance(update, Update):
         return None
 
-    # Allow callback queries through (they come from buttons we've shown)
     if update.callback_query:
         return None
 
-    # Check chat restriction
     if not check_chat_allowed(update):
         if update.effective_message:
             await update.effective_message.reply_text(
-                "⛔ Этот бот работает только в корпоративном чате. "
-                "Обратитесь к администратору для получения доступа."
+                "⛔ Этот бот работает только в корпоративном чате."
             )
-        logger.warning(
-            "unauthorized_chat",
-            chat_id=update.effective_chat.id if update.effective_chat else None,
-        )
         return None
 
-    # Check user authorization
-    if not check_user_allowed(update):
+    if not await authenticate_user(update, context):
         if update.effective_message:
             await update.effective_message.reply_text(
-                "🔒 У вас нет доступа к подаче заявок. "
-                "Обратитесь к администратору для добавления в список сотрудников."
+                "🔒 Ваш Telegram-аккаунт не найден в корпоративной системе Bitrix24. "
+                "Обратитесь к администратору для привязки Telegram к вашему профилю сотрудника."
             )
-        logger.warning(
-            "unauthorized_user",
-            user_id=update.effective_user.id if update.effective_user else None,
-        )
         return None
 
     return None

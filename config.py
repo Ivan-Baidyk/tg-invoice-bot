@@ -15,13 +15,16 @@ class Settings(BaseSettings):
     # --- Telegram ---
     bot_token: str
     allowed_chat_id: int
-    allowed_user_ids: list[int]
-    urgent_notify_user_id: int | None = None
+    allowed_user_ids: list[int] = []
+
+    # --- Bitrix24 ---
+    bitrix24_webhook_url: str = ""
+    bitrix24_telegram_field_id: str = ""
 
     # --- Google ---
     google_sheet_id: str
     google_drive_folder_id: str
-    google_sheet_range: str = "Заявки!A:H"
+    google_sheet_range: str = "\u0417\u0430\u044f\u0432\u043a\u0438!A:H"
 
     # --- Security ---
     max_invoice_file_size_mb: int = 10

@@ -2,16 +2,17 @@
 
 Step-by-step dialog that collects all required fields from the user,
 validates each input, and upon confirmation writes to Google Sheets + Drive.
+
+Employee identity is verified through Bitrix24 (middleware),
+so the full name comes from the corporate directory, not Telegram.
 """
 
 import logging
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import date
 
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
-    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     ConversationHandler,
@@ -20,8 +21,9 @@ from telegram.ext import (
 )
 
 from config import settings
-from middleware.security import ALLOWED_MIME_TYPES, check_file_safe
-from models.invoice import Article, InvoiceApplication, PaymentStatus
+from middleware.security import check_file_safe
+from models.invoice import Article, InvoiceApplication
+from services.bitrix24 import get_accountants
 from services.google_drive import upload_file_async
 from services.google_sheets import append_row_async
 from validators.fields import (
@@ -52,14 +54,22 @@ logger = logging.getLogger(__name__)
 
 
 async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry point. /start или /new_invoice — начало подачи заявки."""
+    """Entry point. Employee full name from Bitrix24 (set by middleware)."""
     user = update.effective_user
     if user is None:
         await update.message.reply_text("Ошибка идентификации пользователя.")
         return ConversationHandler.END
 
-    # Store employee identity from Telegram — immutable, server-verified
-    employee_name = user.full_name or f"@{user.username}" or str(user.id)
+    # Employee identity — verified by Bitrix24 in middleware
+    employee = context.user_data.get("employee_obj")
+    if employee is None:
+        await update.message.reply_text(
+            "🔒 Ваш профиль не найден в корпоративной системе. "
+            "Обратитесь к администратору."
+        )
+        return ConversationHandler.END
+
+    employee_name = employee.full_name
     context.user_data["employee"] = employee_name
     context.user_data["tg_user_id"] = user.id
     context.user_data["entry_date"] = date.today()
@@ -71,15 +81,12 @@ async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     context.user_data["invoice_mime_type"] = None
 
     await update.message.reply_text(
-        "📋 *Новая заявка на оплату счёта*
-
-"
-        "Я пошагово соберу необходимые данные.
-"
-        "В любой момент отправьте /cancel для отмены.
-
-"
-        "Шаг 1/7: Укажите *плановую дату оплаты* в формате ДД.ММ.ГГГГ\.",
+        f"📋 *Новая заявка на оплату счёта*\n\n"
+        f"Сотрудник: *{employee_name}*\n"
+        f"Должность: _{employee.position}_\n\n"
+        "Я пошагово соберу необходимые данные.\n"
+        "В любой момент отправьте /cancel для отмены.\n\n"
+        "Шаг 1/7: Укажите *плановую дату оплаты* в формате ДД.ММ.ГГГГ\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_PLANNED_DATE
@@ -91,12 +98,11 @@ async def get_planned_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         planned_date = validate_date(update.message.text)
         context.user_data["planned_payment_date"] = planned_date
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}
-Попробуйте ещё раз:")
+        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_PLANNED_DATE
 
     await update.message.reply_text(
-        "Шаг 2/7: Введите *наименование контрагента*\.",
+        "Шаг 2/7: Введите *наименование контрагента*\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_COUNTERPARTY
@@ -108,12 +114,11 @@ async def get_counterparty(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         counterparty = validate_counterparty(update.message.text)
         context.user_data["counterparty"] = counterparty
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}
-Попробуйте ещё раз:")
+        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_COUNTERPARTY
 
     await update.message.reply_text(
-        "Шаг 3/7: Введите *сумму* счёта в рублях \(например, 15000 или 15000\.50\)\.",
+        "Шаг 3/7: Введите *сумму* счёта в рублях \\(например, 15000 или 15000\\.50\\)\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_AMOUNT
@@ -125,15 +130,12 @@ async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         amount = validate_amount(update.message.text)
         context.user_data["amount"] = amount
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}
-Попробуйте ещё раз:")
+        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_AMOUNT
 
     lines = build_article_keyboard()
     await update.message.reply_text(
-        "Шаг 4/7: Выберите *статью расхода*:
-" + "
-".join(lines),
+        "Шаг 4/7: Выберите *статью расхода*:\n" + "\n".join(lines),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_ARTICLE
@@ -145,12 +147,11 @@ async def get_article(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         article = validate_article(update.message.text)
         context.user_data["article"] = article
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}
-Попробуйте ещё раз:")
+        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_ARTICLE
 
     await update.message.reply_text(
-        "Шаг 5/7: Добавьте *комментарий* к заявке или отправьте `-` чтобы пропустить\.",
+        "Шаг 5/7: Добавьте *комментарий* к заявке или отправьте `-` чтобы пропустить\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_COMMENT
@@ -162,15 +163,12 @@ async def get_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         comment = validate_comment(update.message.text)
         context.user_data["comment"] = comment
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}
-Попробуйте ещё раз:")
+        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_COMMENT
 
     lines = build_status_keyboard()
     await update.message.reply_text(
-        "Шаг 6/7: Выберите *статус оплаты*:
-" + "
-".join(lines),
+        "Шаг 6/7: Выберите *статус оплаты*:\n" + "\n".join(lines),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_STATUS
@@ -182,13 +180,12 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         status = validate_status(update.message.text)
         context.user_data["payment_status"] = status
     except ValueError as e:
-        await update.message.reply_text(f"❌ {e}
-Попробуйте ещё раз:")
+        await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_STATUS
 
     await update.message.reply_text(
-        "Шаг 7/7: Прикрепите *файл счёта* \(PDF, изображение, документ\) "
-        "или отправьте `-` если счёт отсутствует\.",
+        "Шаг 7/7: Прикрепите *файл счёта* \\(PDF, изображение, документ\\) "
+        "или отправьте `-` если счёт отсутствует\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_INVOICE_FILE
@@ -196,13 +193,11 @@ async def get_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Step 7: Collect invoice file or skip."""
-    # Check if user wants to skip
     if update.message.text and update.message.text.strip() == "-":
         context.user_data["invoice_file_id"] = None
         context.user_data["invoice_file_bytes"] = None
         return await ask_urgency(update, context)
 
-    # Check if a document or photo was sent
     doc = update.message.document
     photo = update.message.photo
 
@@ -227,7 +222,6 @@ async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return await ask_urgency(update, context)
 
     if photo:
-        # Take the largest photo size
         largest = photo[-1]
         file_obj = await largest.get_file()
         file_bytes = await file_obj.download_as_bytearray()
@@ -246,7 +240,7 @@ async def get_invoice_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def ask_urgency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask if the application is urgent."""
     await update.message.reply_text(
-        "Заявка *срочная*? Отправьте `да` или `нет`\.",
+        "Заявка *срочная*? Отправьте `да` или `нет`\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return STATE_URGENCY
@@ -258,43 +252,32 @@ async def get_urgency(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     is_urgent = text in ("да", "yes", "1", "д", "y")
     context.user_data["is_urgent"] = is_urgent
 
-    # Build summary
     ud = context.user_data
     summary = (
-        "📋 *Проверьте данные заявки:*
-
-"
-        f"• Сотрудник: {ud['employee']}
-"
-        f"• Дата внесения: {ud['entry_date'].strftime('%d.%m.%Y')}
-"
-        f"• Плановая дата оплаты: {ud['planned_payment_date'].strftime('%d.%m.%Y')}
-"
-        f"• Контрагент: {ud['counterparty']}
-"
-        f"• Сумма: {ud['amount']} ₽
-"
-        f"• Статья: {ud['article'].value}
-"
-        f"• Статус: {ud['payment_status'].value}
-"
-        f"• Комментарий: {ud['comment'] or '—'}
-"
-        f"• Счёт: {'приложен' if ud.get('invoice_file_bytes') else 'не приложен'}
-"
-        f"• Срочность: {'🔥 Срочно' if is_urgent else 'Обычная'}
-
-"
+        "📋 *Проверьте данные заявки:*\n\n"
+        f"• Сотрудник: {ud['employee']}\n"
+        f"• Дата внесения: {ud['entry_date'].strftime('%d.%m.%Y')}\n"
+        f"• Плановая дата оплаты: {ud['planned_payment_date'].strftime('%d.%m.%Y')}\n"
+        f"• Контрагент: {ud['counterparty']}\n"
+        f"• Сумма: {ud['amount']} ₽\n"
+        f"• Статья: {ud['article'].value}\n"
+        f"• Статус: {ud['payment_status'].value}\n"
+        f"• Комментарий: {ud['comment'] or '—'}\n"
+        f"• Счёт: {'приложен' if ud.get('invoice_file_bytes') else 'не приложен'}\n"
+        f"• Срочность: {'🔥 Срочно' if is_urgent else 'Обычная'}\n\n"
         "Подтвердить отправку? /confirm или /cancel"
     )
-    # Escape for MarkdownV2
-    summary = summary.replace(".", "\.").replace("-", "\-").replace("₽", "₽")
+    summary = summary.replace(".", "\\.").replace("-", "\\-").replace("₽", "₽")
     await update.message.reply_text(summary, parse_mode=ParseMode.MARKDOWN_V2)
     return STATE_CONFIRM
 
 
 async def confirm_application(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Final confirmation: write to Google Sheets and Drive."""
+    """Final confirmation: write to Google Sheets and Drive.
+
+    If urgent: sends notification to ALL employees with 'Бухгалтер' role
+    in their private Telegram chats (not the group).
+    """
     ud = context.user_data
 
     await update.message.reply_text("⏳ Сохраняю заявку...")
@@ -338,43 +321,24 @@ async def confirm_application(update: Update, context: ContextTypes.DEFAULT_TYPE
         await append_row_async(row)
 
         await update.message.reply_text(
-            "✅ *Заявка успешно сохранена\!*
-
-"
-            f"• Контрагент: {app.counterparty}
-"
-            f"• Сумма: {app.amount} ₽
-"
-            f"• Статус: {app.payment_status.value}
-"
+            "✅ *Заявка успешно сохранена\\!*\n\n"
+            f"• Контрагент: {app.counterparty}\n"
+            f"• Сумма: {app.amount} ₽\n"
+            f"• Статус: {app.payment_status.value}\n"
             f"• Счёт: {'загружен в Drive' if invoice_link and invoice_link != 'Счёт не приложен' else 'не приложен'}",
             parse_mode=ParseMode.MARKDOWN_V2,
         )
 
-        # Urgent notification
-        if app.is_urgent and settings.urgent_notify_user_id:
-            try:
-                notify_text = (
-                    f"🔥 *Срочная заявка на оплату*
-
-"
-                    f"От: {app.employee}
-"
-                    f"Контрагент: {app.counterparty}
-"
-                    f"Сумма: {app.amount} ₽
-"
-                    f"Дата оплаты: {app.planned_payment_date.strftime('%d.%m.%Y')}
-"
-                    f"Счёт: {'приложен' if invoice_link and invoice_link != 'Счёт не приложен' else 'не приложен'}"
-                ).replace(".", "\.").replace("-", "\-")
-                await context.bot.send_message(
-                    chat_id=settings.urgent_notify_user_id,
-                    text=notify_text,
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
-            except Exception as e:
-                logger.error("urgent_notify_failed", error=str(e))
+        # Urgent notification → ALL accountants via DM
+        if app.is_urgent:
+            await _notify_accountants(
+                context,
+                employee=app.employee,
+                counterparty=app.counterparty,
+                amount=app.amount,
+                payment_date=app.planned_payment_date.strftime("%d.%m.%Y"),
+                has_file=bool(invoice_link and invoice_link != "Счёт не приложен"),
+            )
 
     except Exception as e:
         logger.error("sheet_write_failed", error=str(e))
@@ -384,6 +348,51 @@ async def confirm_application(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     return ConversationHandler.END
+
+
+async def _notify_accountants(
+    context: ContextTypes.DEFAULT_TYPE,
+    employee: str,
+    counterparty: str,
+    amount: object,
+    payment_date: str,
+    has_file: bool,
+) -> None:
+    """Send urgent payment notification to all accountants via DM."""
+    accountants = await get_accountants()
+
+    if not accountants:
+        logger.warning("urgent_notify_no_accountants")
+        return
+
+    notify_text = (
+        "🔥 *Срочная заявка на оплату*\n\n"
+        f"От: {employee}\n"
+        f"Контрагент: {counterparty}\n"
+        f"Сумма: {amount} ₽\n"
+        f"Дата оплаты: {payment_date}\n"
+        f"Счёт: {'приложен' if has_file else 'не приложен'}"
+    ).replace(".", "\\.").replace("-", "\\-")
+
+    notified = 0
+    for acc in accountants:
+        try:
+            await context.bot.send_message(
+                chat_id=acc.telegram_id,
+                text=notify_text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            notified += 1
+            logger.info("urgent_notified", accountant=acc.full_name, tg_id=acc.telegram_id)
+        except Exception as e:
+            logger.error(
+                "urgent_notify_failed",
+                accountant=acc.full_name,
+                tg_id=acc.telegram_id,
+                error=str(e),
+            )
+
+    logger.info("urgent_notify_summary", total_accountants=len(accountants), notified=notified)
 
 
 async def cancel_application(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

@@ -1,34 +1,24 @@
-"""Google Sheets service: read/write invoice data."""
+"""Google Sheets service: read/write invoice data using OAuth 2.0.
+
+Authentication is handled by google_auth.get_credentials() which uses
+the user's personal Google account via OAuth, not a service account.
+"""
 
 import logging
-from pathlib import Path
 
-from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from config import settings
+from services.google_auth import get_credentials
 
 logger = logging.getLogger(__name__)
-
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
-
-def _get_credentials() -> Credentials:
-    """Load service account credentials from JSON file."""
-    creds_path = Path(settings.google_service_account_file)
-    if not creds_path.exists():
-        raise FileNotFoundError(
-            f"Service account credentials file not found: {creds_path}. "
-            "Place your credentials.json in the project root."
-        )
-    return Credentials.from_service_account_file(str(creds_path), scopes=SCOPES)
 
 
 def append_row(row_data: list[str]) -> str:
     """Append a row to the Google Sheet. Returns the range where data was written."""
     try:
-        creds = _get_credentials()
+        creds = get_credentials()
         service = build("sheets", "v4", credentials=creds, cache_discovery=False)
         sheet = service.spreadsheets()
 

@@ -45,10 +45,18 @@ logger = logging.getLogger(__name__)
     STATE_AMOUNT,
     STATE_ARTICLE,
     STATE_COMMENT,
+    STATE_STATUS,
     STATE_INVOICE_FILE,
     STATE_CONFIRM,
     STATE_EDITING,
-) = range(8)
+) = range(9)
+
+STATUS_KEYBOARD = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("🆕 Новый", callback_data="status_new"),
+        InlineKeyboardButton("✅ Оплачено", callback_data="status_paid"),
+    ],
+])
 
 SKIP_KEYBOARD = InlineKeyboardMarkup([
     [InlineKeyboardButton("⏭ Пропустить", callback_data="skip_field")]
@@ -73,6 +81,7 @@ def _build_summary_html(ud: dict) -> str:
         f"<b>Контрагент:</b> {ud['counterparty']}\n"
         f"<b>Сумма:</b> {ud['amount']} {ud['currency_code']} ({cn})\n"
         f"<b>Статья:</b> {ud['article']}\n"
+        f"<b>Статус оплаты:</b> {ud.get('payment_status', 'Новый')}\n"
         f"<b>Комментарий:</b> {ud['comment'] or '—'}\n"
         f"<b>Файл счёта:</b> {file_status}\n\n"
         "<i>Нажмите кнопку для изменения поля</i>"
@@ -85,6 +94,7 @@ def _build_confirm_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🏢 Контрагента", callback_data="edit:counterparty")],
         [InlineKeyboardButton("💰 Сумму / Валюту", callback_data="edit:amount")],
         [InlineKeyboardButton("📂 Статью", callback_data="edit:article")],
+        [InlineKeyboardButton("📋 Статус оплаты", callback_data="edit:status")],
         [InlineKeyboardButton("💬 Комментарий", callback_data="edit:comment")],
         [InlineKeyboardButton("📎 Файл счёта", callback_data="edit:file")],
         [
@@ -121,6 +131,7 @@ async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     context.user_data["tg_user_id"] = user.id
     context.user_data["employee_bitrix_id"] = employee.bitrix_id
     context.user_data["entry_date"] = date.today()
+    context.user_data["payment_status"] = "Новый"
     context.user_data["invoice_file_bytes"] = None
     context.user_data["invoice_file_name"] = None
     context.user_data["invoice_mime_type"] = None
@@ -130,7 +141,7 @@ async def start_application(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"Сотрудник: <b>{employee.full_name}</b>\n"
         f"Должность: <i>{employee.position}</i>\n\n"
         "Для отмены в любой момент отправьте /cancel\n\n"
-        "<b>Шаг 1 из 5:</b> Укажите <b>плановую дату оплаты</b> в формате ДД.ММ.ГГГГ",
+        "<b>Шаг 1 из 6:</b> Укажите <b>плановую дату оплаты</b> в формате ДД.ММ.ГГГГ",
         parse_mode=ParseMode.HTML,
     )
     return STATE_PLANNED_DATE
@@ -147,7 +158,7 @@ async def get_planned_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_PLANNED_DATE
     await update.message.reply_text(
-        "<b>Шаг 2 из 5:</b> Введите <b>наименование контрагента</b>",
+        "<b>Шаг 2 из 6:</b> Введите <b>наименование контрагента</b>",
         parse_mode=ParseMode.HTML,
     )
     return STATE_COUNTERPARTY
@@ -160,7 +171,7 @@ async def get_counterparty(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_COUNTERPARTY
     await update.message.reply_text(
-        "<b>Шаг 3 из 5:</b> Введите <b>сумму и код валюты</b>\n"
+        "<b>Шаг 3 из 6:</b> Введите <b>сумму и код валюты</b>\n"
         "Пример: <code>15000 RUB</code>",
         parse_mode=ParseMode.HTML,
     )
@@ -180,7 +191,7 @@ async def get_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     articles = await _load_articles(context)
     await update.message.reply_text(
         f"✅ {amount} {currency.code} — {currency.name_ru}\n\n"
-        + "<b>Шаг 4 из 5:</b> Выберите <b>статью расхода</b>:\n"
+        + "<b>Шаг 4 из 6:</b> Выберите <b>статью расхода</b>:\n"
         + "\n".join(build_article_keyboard(articles)),
         parse_mode=ParseMode.HTML,
     )
@@ -208,6 +219,38 @@ async def get_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     except ValueError as e:
         await update.message.reply_text(f"❌ {e}\nПопробуйте ещё раз:")
         return STATE_COMMENT
+    await update.message.reply_text(
+        "<b>Шаг 6 из 6:</b> Выберите <b>статус оплаты</b>:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=STATUS_KEYBOARD,
+    )
+    return STATE_STATUS
+
+
+async def get_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "status_new":
+        context.user_data["payment_status"] = "Новый"
+    elif data == "status_paid":
+        context.user_data["payment_status"] = "Оплачено"
+    await query.edit_message_text(f"Статус: {context.user_data['payment_status']}")
+    await update.callback_query.message.reply_text(
+        "Прикрепите <b>файл счёта</b> или нажмите «Пропустить»",
+        parse_mode=ParseMode.HTML,
+        reply_markup=SKIP_KEYBOARD,
+    )
+    return STATE_INVOICE_FILE
+
+
+async def get_status_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    text = update.message.text.strip()
+    if text in ("Новый", "Оплачено"):
+        context.user_data["payment_status"] = text
+    else:
+        context.user_data["payment_status"] = "Новый"
+    await update.message.reply_text(f"Статус: {text}")
     await update.message.reply_text(
         "Прикрепите <b>файл счёта</b> или нажмите «Пропустить»",
         parse_mode=ParseMode.HTML,
@@ -314,6 +357,17 @@ async def _start_edit_article(update, context):
     context.user_data["editing_field"] = "article"
     return STATE_EDITING
 
+async def _start_edit_status(update, context):
+    await update.callback_query.answer()
+    await update.callback_query.message.reply_text(
+        "Выберите новый <b>статус оплаты</b>:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=STATUS_KEYBOARD,
+    )
+    context.user_data["editing_field"] = "status"
+    return STATE_EDITING
+
+
 async def _start_edit_comment(update, context):
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("Введите новый <b>комментарий</b> или <code>-</code>:", parse_mode=ParseMode.HTML)
@@ -332,6 +386,7 @@ EDIT_ROUTER = {
     "counterparty": _start_edit_counterparty,
     "amount": _start_edit_amount,
     "article": _start_edit_article,
+    "status": _start_edit_status,
     "comment": _start_edit_comment,
     "file": _start_edit_file,
 }
@@ -365,6 +420,11 @@ async def handle_field_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         elif field == "article":
             articles = await _load_articles(context)
             context.user_data["article"] = validate_article(text, articles)
+        elif field == "status":
+            if text.strip() in ("Новый", "Оплачено"):
+                context.user_data["payment_status"] = text.strip()
+            else:
+                raise ValueError("Выберите 'Новый' или 'Оплачено'")
         elif field == "comment":
             context.user_data["comment"] = validate_comment(text)
         elif field == "file":
@@ -446,6 +506,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             amount=ud["amount"],
             currency=Currency(code=ud["currency_code"], name_ru=ud["currency_name"], country="", numeric=0),
             article=ud["article"],
+            payment_status=ud.get("payment_status", "Новый"),
             comment=ud.get("comment", ""),
             invoice_link=invoice_link,
             employee_bitrix_id=ud.get("employee_bitrix_id", 0),
@@ -457,7 +518,7 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
             f"Контрагент: {app.counterparty}\n"
             f"Сумма: {app.amount} {app.currency_code} ({app.currency_name})\n"
             f"Статья: {app.article}\n"
-            f"Статус: Новый\n"
+            f"Статус: {ud.get("payment_status", "Новый")}\n"
             f"Счёт: {'загружен' if invoice_link != 'Счёт не приложен' else 'не приложен'}",
             parse_mode=ParseMode.HTML,
         )
@@ -577,6 +638,10 @@ def build_application_handlers() -> list:
                 CallbackQueryHandler(skip_field_callback, pattern="^skip_field$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_comment),
             ],
+            STATE_STATUS: [
+                CallbackQueryHandler(get_status_callback, pattern="^status_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_status_text),
+            ],
             STATE_INVOICE_FILE: [
                 CallbackQueryHandler(skip_field_callback, pattern="^skip_field$"),
                 MessageHandler(filters.Document.ALL | filters.PHOTO, get_invoice_file),
@@ -588,6 +653,7 @@ def build_application_handlers() -> list:
                 CallbackQueryHandler(handle_cancel_callback, pattern="^cancel_app$"),
             ],
             STATE_EDITING: [
+                CallbackQueryHandler(get_status_callback, pattern="^status_"),
                 MessageHandler(filters.TEXT | filters.Document.ALL | filters.PHOTO, handle_field_input),
             ],
         },

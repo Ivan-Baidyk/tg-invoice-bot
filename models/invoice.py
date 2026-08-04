@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from data.currencies import Currency
 
 DATE_PATTERN = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
-STATUS_DEFAULT = "Новый"
+self.payment_status = "Новый"
 
 
 class InvoiceApplication(BaseModel):
@@ -21,6 +21,7 @@ class InvoiceApplication(BaseModel):
     currency_code: str = Field(default="RUB", min_length=3, max_length=3)
     currency_name: str = Field(default="Российский рубль")
     article: str = Field(min_length=1, max_length=200)
+    payment_status: str = Field(default="Новый")
     comment: str = Field(default="", max_length=500)
     invoice_link: str = Field(default="", max_length=500)
     employee_bitrix_id: int = 0
@@ -34,6 +35,7 @@ class InvoiceApplication(BaseModel):
         amount: Decimal,
         currency: Currency,
         article: str,
+        payment_status: str = "Новый",
         comment: str = "",
         invoice_link: str = "",
         entry_date: date | None = None,
@@ -48,6 +50,7 @@ class InvoiceApplication(BaseModel):
             currency_code=currency.code,
             currency_name=currency.name_ru,
             article=article,
+            payment_status=payment_status,
             comment=comment,
             invoice_link=invoice_link,
             employee_bitrix_id=employee_bitrix_id,
@@ -67,7 +70,7 @@ class InvoiceApplication(BaseModel):
             self.counterparty,
             f"{self.amount} {self.currency_code}",
             self.article,
-            STATUS_DEFAULT,
+            self.payment_status,
             self.comment,
             invoice_link or "Счёт не приложен",
             str(self.employee_bitrix_id),

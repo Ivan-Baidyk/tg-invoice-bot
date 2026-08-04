@@ -1,3 +1,4 @@
+import termios, tty
 #!/usr/bin/env python3
 """Интерактивный мастер установки Invoice Bot — пошаговая настройка."""
 
@@ -53,6 +54,13 @@ def main() -> None:
 
     # ── Шаг 1: Токен бота ──
     step("Токен Telegram-бота")
+    # Flush any buffered input
+    import termios, tty
+    try:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except Exception:
+        pass
+
     while True:
         bot_token = ask("Токен бота (получить у @BotFather)")
         if not bot_token:

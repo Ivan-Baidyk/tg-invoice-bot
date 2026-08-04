@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from data.currencies import Currency
 
 DATE_PATTERN = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
-self.payment_status = "Новый"
 
 
 class InvoiceApplication(BaseModel):

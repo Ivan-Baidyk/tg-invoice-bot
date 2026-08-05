@@ -52,7 +52,17 @@ async def security_middleware(
 ) -> object | None:
     if not isinstance(update, Update):
         return None
-    # Authenticate both messages and callback queries (buttons)
+
+    # Only allow private chats (DM) — reject group commands
+    chat = update.effective_chat
+    if chat and chat.type != "private":
+        if update.effective_message and update.effective_message.text:
+            if update.effective_message.text.startswith("/"):
+                await update.effective_message.reply_text(
+                    "Бот работает только в личных сообщениях. Отправьте команду /start мне в личку."
+                )
+        return True  # Block group messages
+
     if not await authenticate_user(update, context):
         if update.effective_message:
             await update.effective_message.reply_text(

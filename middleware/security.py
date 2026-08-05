@@ -52,8 +52,7 @@ async def security_middleware(
 ) -> object | None:
     if not isinstance(update, Update):
         return None
-    if update.callback_query:
-        return None
+    # Authenticate both messages and callback queries (buttons)
     if not await authenticate_user(update, context):
         if update.effective_message:
             await update.effective_message.reply_text(

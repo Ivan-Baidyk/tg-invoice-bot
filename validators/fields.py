@@ -52,12 +52,26 @@ def validate_amount_with_currency(text: str) -> tuple[Decimal, Currency]:
 
 
 def validate_counterparty(text: str) -> str:
+    """Validate and sanitize counterparty name. Blocks scripts, markup, URLs."""
     text = text.strip()
     if not text:
         raise ValueError("Введите наименование контрагента")
     if len(text) > 200:
         raise ValueError("Слишком длинное наименование (макс. 200 символов)")
-    return text
+
+    # Block dangerous patterns
+    lower = text.lower()
+    dangerous = ["<script", "javascript:", "onerror=", "onload=", "<img", "<svg",
+                 "<iframe", "&#", "http://", "https://", "ftp://", "<a ", "</a>"]
+    for pattern in dangerous:
+        if pattern in lower:
+            raise ValueError("Недопустимые символы в названии контрагента")
+
+    # Remove any remaining non-safe characters
+    cleaned = SAFE_TEXT_RE.sub("", text).strip()
+    if not cleaned:
+        raise ValueError("Недопустимые символы в названии контрагента")
+    return cleaned
 
 
 def validate_article(text: str, articles: list[str]) -> str:
@@ -84,7 +98,13 @@ def validate_comment(text: str) -> str:
     text = text.strip() if text else ""
     if len(text) > 500:
         raise ValueError("Слишком длинный комментарий (макс. 500 символов)")
-    return text
+    lower = text.lower()
+    dangerous = ["<script", "javascript:", "onerror=", "onload=", "<img", "<svg",
+                 "<iframe", "&#", "<a ", "</a>"]
+    for pattern in dangerous:
+        if pattern in lower:
+            raise ValueError("Недопустимые символы в комментарии")
+    return SAFE_TEXT_RE.sub("", text).strip()
 
 
 def build_article_keyboard(articles: list[str]) -> list[str]:
